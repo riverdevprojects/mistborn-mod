@@ -108,7 +108,13 @@ public class MetalLineRenderer {
                .setColor(lineR, lineG, lineB, alpha);
         }
 
-        BufferUploader.drawWithShader(buf.buildOrThrow());
+        // build() returns null when no vertices were added (e.g. all sources are the
+        // targeted source and were skipped above).  Guard to avoid the crash that
+        // buildOrThrow() would cause in that situation.
+        MeshData normalMesh = buf.build();
+        if (normalMesh != null) {
+            BufferUploader.drawWithShader(normalMesh);
+        }
 
         // Draw targeted line (brighter, separate draw call for width change)
         if (target != null) {
