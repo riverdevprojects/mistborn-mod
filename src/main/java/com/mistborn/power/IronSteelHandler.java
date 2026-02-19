@@ -294,12 +294,15 @@ public class IronSteelHandler {
                 applyVelocity(player, dir.scale(-1).scale(force * 0.5), true);
             }
             case HEAVY -> {
-                // Steeljump – only if block is below the player within the configured angle
                 if (target.blockPos != null && isBelowPlayer(player, target.blockPos)) {
+                    // Steeljump: block is beneath the player – launch upward
                     double jumpForce = MistbornConfig.STEELJUMP_FORCE.get();
                     Vec3 current = player.getDeltaMovement();
                     player.setDeltaMovement(current.x, jumpForce, current.z);
                     player.resetFallDistance();
+                } else {
+                    // Block is beside or above – push the player directly away from it
+                    applyVelocity(player, dir.scale(-1).scale(force), true);
                 }
             }
         }
