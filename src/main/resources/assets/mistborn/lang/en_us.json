@@ -1,0 +1,18 @@
+{
+  "itemGroup.mistborn": "Mistborn",
+
+  "item.mistborn.iron_flake":   "Iron Flake",
+  "item.mistborn.steel_flake":  "Steel Flake",
+  "item.mistborn.tin_flake":    "Tin Flake",
+  "item.mistborn.pewter_flake": "Pewter Flake",
+  "item.mistborn.copper_flake": "Copper Flake",
+  "item.mistborn.bronze_flake": "Bronze Flake",
+  "item.mistborn.zinc_flake":   "Zinc Flake",
+  "item.mistborn.brass_flake":  "Brass Flake",
+
+  "key.categories.mistborn": "Mistborn",
+  "key.mistborn.radial":     "Open Metal Radial Menu",
+  "key.mistborn.burn":       "Burn Selected Metal",
+  "key.mistborn.push":       "Steel Push",
+  "key.mistborn.pull":       "Iron Pull"
+}
