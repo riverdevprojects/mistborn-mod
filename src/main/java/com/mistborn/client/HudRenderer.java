@@ -46,7 +46,7 @@ public class HudRenderer {
     /**
      * Called each frame from {@link ClientEventHandler} during {@code RenderGuiEvent.Post}.
      */
-    public static void render(GuiGraphics gfx, float partialTick) {
+    public static void render(GuiGraphics gfx) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
         if (!mc.player.hasData(ModAttachments.ALLOMANTIC_DATA.get())) return;

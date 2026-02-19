@@ -44,15 +44,12 @@ public class ClientEventHandler {
 
     @SubscribeEvent
     public void onRenderGui(RenderGuiEvent.Post event) {
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.options.renderDebug) return; // hide during F3 debug
-
         // HUD overlay
-        HudRenderer.render(event.getGuiGraphics(), event.getPartialTick());
+        HudRenderer.render(event.getGuiGraphics());
 
         // Radial menu (only when key is held)
         if (ModKeybinds.KEY_RADIAL.isDown()) {
-            RadialMenuRenderer.render(event.getGuiGraphics(), event.getPartialTick());
+            RadialMenuRenderer.render(event.getGuiGraphics());
         }
     }
 

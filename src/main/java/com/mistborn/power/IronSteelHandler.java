@@ -60,7 +60,9 @@ public class IronSteelHandler {
         if (stack.isEmpty()) return false;
         // Tagged as ingot or nugget (covers most metals from mods too)
         if (stack.is(Tags.Items.INGOTS) || stack.is(Tags.Items.NUGGETS)) return true;
-        // Metal armor
+        // Chainmail armor (no ArmorMaterials constant in 1.21.1)
+        if (isChainmailItem(stack.getItem())) return true;
+        // Other metal armor via material comparison (iron, gold, netherite)
         if (stack.getItem() instanceof ArmorItem armor) {
             var mat = armor.getMaterial().value();
             return isMetalArmorMaterial(mat);
@@ -87,10 +89,17 @@ public class IronSteelHandler {
     }
 
     private static boolean isMetalArmorMaterial(net.minecraft.world.item.ArmorMaterial mat) {
+        // CHAINMAIL does not have an ArmorMaterials constant in 1.21.1; handled by item identity.
         return mat == ArmorMaterials.IRON.value()
                 || mat == ArmorMaterials.GOLD.value()
-                || mat == ArmorMaterials.CHAINMAIL.value()
                 || mat == ArmorMaterials.NETHERITE.value();
+    }
+
+    private static boolean isChainmailItem(net.minecraft.world.item.Item item) {
+        return item == net.minecraft.world.item.Items.CHAINMAIL_HELMET
+                || item == net.minecraft.world.item.Items.CHAINMAIL_CHESTPLATE
+                || item == net.minecraft.world.item.Items.CHAINMAIL_LEGGINGS
+                || item == net.minecraft.world.item.Items.CHAINMAIL_BOOTS;
     }
 
     /** Returns true if the entity wears at least one piece of metal armour or holds a metal item. */
@@ -123,7 +132,7 @@ public class IronSteelHandler {
         if (state.is(Blocks.HEAVY_WEIGHTED_PRESSURE_PLATE)) return true;
         if (state.is(Blocks.LIGHT_WEIGHTED_PRESSURE_PLATE)) return true;
         if (state.is(Blocks.HOPPER))                     return true;
-        if (state.is(Blocks.MINECART) || state.is(Blocks.DETECTOR_RAIL)) return true; // already covered by RAILS
+        // Minecart is an entity, not a block; detector_rail is already covered by RAILS tag above.
         return false;
     }
 

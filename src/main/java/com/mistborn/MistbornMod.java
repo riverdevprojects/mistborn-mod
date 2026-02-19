@@ -95,27 +95,13 @@ public class MistbornMod {
      */
     @SubscribeEvent
     public void onPlayerClone(PlayerEvent.Clone event) {
-        if (!event.isWasDeath()) {
-            // Dimension travel: simply copy all data
-            var original = event.getOriginal();
-            var clone    = event.getEntity();
-            original.reviveCaps(); // needed to access caps on dead original
-            if (original.hasData(ModAttachments.ALLOMANTIC_DATA.get())) {
-                clone.getData(ModAttachments.ALLOMANTIC_DATA.get())
-                     .copyFrom(original.getData(ModAttachments.ALLOMANTIC_DATA.get()));
-            }
-            original.invalidateCaps();
-        } else {
-            // Death respawn: NeoForge attachments marked as copyOnDeath survive automatically
-            // if AttachmentType.copyOnDeath() is set.  Since we didn't set that, copy manually.
-            var original = event.getOriginal();
-            var clone    = event.getEntity();
-            original.reviveCaps();
-            if (original.hasData(ModAttachments.ALLOMANTIC_DATA.get())) {
-                clone.getData(ModAttachments.ALLOMANTIC_DATA.get())
-                     .copyFrom(original.getData(ModAttachments.ALLOMANTIC_DATA.get()));
-            }
-            original.invalidateCaps();
+        // Copy Allomantic data from the original player to the new instance.
+        // NeoForge attachment types are accessible directly without reviveCaps/invalidateCaps.
+        var original = event.getOriginal();
+        var clone    = event.getEntity();
+        if (original.hasData(ModAttachments.ALLOMANTIC_DATA.get())) {
+            clone.getData(ModAttachments.ALLOMANTIC_DATA.get())
+                 .copyFrom(original.getData(ModAttachments.ALLOMANTIC_DATA.get()));
         }
     }
 

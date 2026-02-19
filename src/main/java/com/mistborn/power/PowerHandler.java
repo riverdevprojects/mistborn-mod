@@ -123,8 +123,10 @@ public class PowerHandler {
                 Math.min(start.x, end.x) - 0.5, Math.min(start.y, end.y) - 0.5, Math.min(start.z, end.z) - 0.5,
                 Math.max(start.x, end.x) + 0.5, Math.max(start.y, end.y) + 0.5, Math.max(start.z, end.z) + 0.5);
 
+        // Cast to Entity so the != comparison compiles across unrelated subtypes.
+        final net.minecraft.world.entity.Entity itemAsEntity = item;
         List<LivingEntity> targets = level.getEntitiesOfClass(LivingEntity.class, sweepBox,
-                e -> e != item && !e.isSpectator());
+                e -> e != itemAsEntity && !e.isSpectator());
 
         for (LivingEntity target : targets) {
             item.setData(ModAttachments.STEEL_PROJECTILE.get(), false);

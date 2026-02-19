@@ -26,25 +26,8 @@ public class ModItems {
     public static final DeferredRegister<CreativeModeTab> CREATIVE_TABS =
             DeferredRegister.create(Registries.CREATIVE_MODE_TAB, MODID);
 
-    public static final DeferredHolder<CreativeModeTab, CreativeModeTab> MISTBORN_TAB =
-            CREATIVE_TABS.register("mistborn_tab", () ->
-                    CreativeModeTab.builder()
-                            .title(Component.translatable("itemGroup.mistborn"))
-                            .withTabsBefore(CreativeModeTabs.COMBAT)
-                            .icon(() -> IRON_FLAKE.get().getDefaultInstance())
-                            .displayItems((params, output) -> {
-                                output.accept(IRON_FLAKE.get());
-                                output.accept(STEEL_FLAKE.get());
-                                output.accept(TIN_FLAKE.get());
-                                output.accept(PEWTER_FLAKE.get());
-                                output.accept(COPPER_FLAKE.get());
-                                output.accept(BRONZE_FLAKE.get());
-                                output.accept(ZINC_FLAKE.get());
-                                output.accept(BRASS_FLAKE.get());
-                            })
-                            .build());
-
     // ── Metal Flakes ──────────────────────────────────────────────────────────
+    // Declared before MISTBORN_TAB to avoid illegal forward references.
 
     public static final DeferredItem<MetalFlakeItem> IRON_FLAKE =
             registerFlake(AllomanticMetal.IRON, "iron_flake");
@@ -85,6 +68,28 @@ public class ModItems {
         BY_METAL.put(AllomanticMetal.ZINC,   ZINC_FLAKE);
         BY_METAL.put(AllomanticMetal.BRASS,  BRASS_FLAKE);
     }
+
+    // ── Creative tab (declared last to legally reference the flake fields above) ──
+
+    public static final DeferredHolder<CreativeModeTab, CreativeModeTab> MISTBORN_TAB =
+            CREATIVE_TABS.register("mistborn_tab", () ->
+                    CreativeModeTab.builder()
+                            .title(Component.translatable("itemGroup.mistborn"))
+                            .withTabsBefore(CreativeModeTabs.COMBAT)
+                            .icon(() -> IRON_FLAKE.get().getDefaultInstance())
+                            .displayItems((params, output) -> {
+                                output.accept(IRON_FLAKE.get());
+                                output.accept(STEEL_FLAKE.get());
+                                output.accept(TIN_FLAKE.get());
+                                output.accept(PEWTER_FLAKE.get());
+                                output.accept(COPPER_FLAKE.get());
+                                output.accept(BRONZE_FLAKE.get());
+                                output.accept(ZINC_FLAKE.get());
+                                output.accept(BRASS_FLAKE.get());
+                            })
+                            .build());
+
+    // ── Accessors ─────────────────────────────────────────────────────────────
 
     public static DeferredItem<MetalFlakeItem> getFlakeFor(AllomanticMetal metal) {
         return BY_METAL.get(metal);

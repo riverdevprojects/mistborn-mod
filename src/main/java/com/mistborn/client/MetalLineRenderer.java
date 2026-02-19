@@ -10,8 +10,6 @@ import com.mojang.blaze3d.vertex.*;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GameRenderer;
-import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.client.renderer.RenderType;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
@@ -80,7 +78,8 @@ public class MetalLineRenderer {
         float lineG = burning == AllomanticMetal.IRON ? 0.55f : 0.36f;
         float lineB = burning == AllomanticMetal.IRON ? 0.85f : 0.36f;
 
-        Vec3 eyePos = player.getEyePosition(event.getPartialTick());
+        // Use no-arg getEyePosition() to avoid extracting a float from DeltaTracker.
+        Vec3 eyePos = player.getEyePosition();
 
         PoseStack poseStack = event.getPoseStack();
         poseStack.pushPose();
