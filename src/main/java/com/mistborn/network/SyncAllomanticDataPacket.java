@@ -24,9 +24,8 @@ import static com.mistborn.MistbornMod.MODID;
 public record SyncAllomanticDataPacket(
         Set<AllomanticMetal> unlockedMetals,
         Map<AllomanticMetal, Float> reserves,
-        AllomanticMetal currentlyBurning, // may be null
-        boolean isPewterBurning,
-        boolean isCopperActive
+        AllomanticMetal currentlyBurning, // may be null; represents selected metal
+        boolean isBurningActive           // F-toggle state
 ) implements CustomPacketPayload {
 
     public static final Type<SyncAllomanticDataPacket> TYPE =
@@ -50,12 +49,11 @@ public record SyncAllomanticDataPacket(
             buf.writeFloat(pkt.reserves.getOrDefault(m, 0f));
         }
 
-        // Currently burning (ordinal, or -1 for null)
+        // Currently selected metal (ordinal, or -1 for null)
         buf.writeByte(pkt.currentlyBurning != null ? pkt.currentlyBurning.ordinal() : -1);
 
-        // Flags
-        buf.writeBoolean(pkt.isPewterBurning);
-        buf.writeBoolean(pkt.isCopperActive);
+        // Burn-active flag
+        buf.writeBoolean(pkt.isBurningActive);
     }
 
     private static SyncAllomanticDataPacket decode(FriendlyByteBuf buf) {
@@ -76,10 +74,9 @@ public record SyncAllomanticDataPacket(
         AllomanticMetal burning = (burningOrdinal >= 0 && burningOrdinal < vals.length)
                 ? vals[burningOrdinal] : null;
 
-        boolean pewter = buf.readBoolean();
-        boolean copper = buf.readBoolean();
+        boolean burningActive = buf.readBoolean();
 
-        return new SyncAllomanticDataPacket(unlocked, reserves, burning, pewter, copper);
+        return new SyncAllomanticDataPacket(unlocked, reserves, burning, burningActive);
     }
 
     // ── Handling (client side) ────────────────────────────────────────────────
@@ -98,13 +95,13 @@ public record SyncAllomanticDataPacket(
             // Sync each reserve individually via public API
             for (AllomanticMetal m : AllomanticMetal.values()) {
                 float target = reserves.getOrDefault(m, 0f);
-                // Overwrite by draining all then adding target
                 float existing = data.getReserve(m);
                 if (existing > 0) data.drainReserve(m, existing);
                 if (target > 0)   data.addReserve(m, target);
             }
 
             data.setCurrentlyBurning(currentlyBurning);
+            data.setBurningActive(isBurningActive);
             data.clearDirty();
         });
     }
@@ -133,7 +130,6 @@ public record SyncAllomanticDataPacket(
                 unlocked,
                 reserves,
                 data.getCurrentlyBurning(),
-                data.isPewterBurning(),
-                data.isCopperActive());
+                data.isBurningActive());
     }
 }

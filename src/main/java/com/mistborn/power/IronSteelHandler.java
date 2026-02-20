@@ -274,35 +274,57 @@ public class IronSteelHandler {
      * Execute a Steel Push from the server on the given target source.
      */
     public static void executePush(ServerPlayer player, MetalSource target, ServerLevel level) {
-        Vec3 playerPos = player.position().add(0, player.getEyeHeight(), 0);
+        Vec3 playerPos  = player.position().add(0, player.getEyeHeight(), 0);
         Vec3 fromPlayer = target.position.subtract(playerPos);
         double dist     = fromPlayer.length();
         if (dist < 0.001) return;
-        Vec3 dir        = fromPlayer.normalize();
-        double force    = computeForce(dist);
+        Vec3 dir     = fromPlayer.normalize();
+        double force = computeForce(dist);
 
         switch (target.weightClass) {
             case LIGHT -> {
-                // Item becomes a projectile
                 if (target.entity instanceof ItemEntity item) {
                     launchProjectile(player, item, dir.scale(force), level);
                 }
             }
             case MEDIUM -> {
-                // Both pushed apart – split force
                 applyVelocity(target.entity, dir.scale(force * 0.5), true);
                 applyVelocity(player, dir.scale(-1).scale(force * 0.5), true);
             }
             case HEAVY -> {
                 if (target.blockPos != null && isBelowPlayer(player, target.blockPos)) {
-                    // Steeljump: block is beneath the player – launch upward
+                    // Steeljump – block is beneath the player, launch straight up
                     double jumpForce = MistbornConfig.STEELJUMP_FORCE.get();
-                    Vec3 current = player.getDeltaMovement();
+                    Vec3   current   = player.getDeltaMovement();
                     player.setDeltaMovement(current.x, jumpForce, current.z);
                     player.resetFallDistance();
+                    // FIX: send the updated velocity to the client explicitly.
+                    // Without this packet the client never sees the changed Y velocity
+                    // so the player appears to stay on the ground despite the server-side
+                    // delta movement being set.
+                    player.hurtMarked = true;
+                    player.connection.send(
+                            new net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket(player));
                 } else {
-                    // Block is beside or above – push the player directly away from it
-                    applyVelocity(player, dir.scale(-1).scale(force), true);
+                    // Block is beside or above the player.
+                    //
+                    // FIX: Use the block's TOP FACE centre as the force origin instead of
+                    // the block's geometric centre.  When the player stands directly beside
+                    // a block on flat ground both Y coordinates are equal (block-top-Y ==
+                    // player-feet-Y) so the resulting push direction is perfectly horizontal
+                    // – matching Mistborn book physics.  For blocks at other heights the
+                    // direction interpolates naturally.
+                    double blockTopY = target.blockPos != null
+                            ? target.blockPos.getY() + 1.0
+                            : target.position.y;
+                    Vec3 blockSurface  = new Vec3(target.position.x, blockTopY, target.position.z);
+                    Vec3 awayFromBlock = player.position().subtract(blockSurface);
+                    double awayDist    = awayFromBlock.length();
+                    if (awayDist > 0.001) {
+                        applyVelocity(player, awayFromBlock.normalize().scale(force), true);
+                    } else {
+                        applyVelocity(player, dir.scale(-1).scale(force), true);
+                    }
                 }
             }
         }

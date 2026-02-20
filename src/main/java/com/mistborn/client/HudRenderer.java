@@ -36,12 +36,13 @@ public class HudRenderer {
     private static final int LABEL_HEIGHT  = 10;
 
     // Colours (ARGB)
-    private static final int COL_BACKGROUND  = 0xAA000000;
-    private static final int COL_BAR_BG      = 0xFF222222;
-    private static final int COL_EMPTY       = 0xFF555555;
-    private static final int COL_BORDER_BURN = 0xFFFFD700; // gold border when burning
-    private static final int COL_TEXT_NORMAL = 0xFFCCCCCC;
-    private static final int COL_TEXT_DIM    = 0xFF666666;
+    private static final int COL_BACKGROUND    = 0xAA000000;
+    private static final int COL_BAR_BG        = 0xFF222222;
+    private static final int COL_EMPTY         = 0xFF555555;
+    private static final int COL_BORDER_BURN   = 0xFFFFD700; // gold border – F toggle ON
+    private static final int COL_BORDER_SELECT = 0xFFAAAAAA; // silver border – selected, F off
+    private static final int COL_TEXT_NORMAL   = 0xFFCCCCCC;
+    private static final int COL_TEXT_DIM      = 0xFF666666;
 
     /**
      * Called each frame from {@link ClientEventHandler} during {@code RenderGuiEvent.Post}.
@@ -69,7 +70,8 @@ public class HudRenderer {
                  startX + totalW + 2, startY + CELL_HEIGHT + 2,
                  COL_BACKGROUND);
 
-        AllomanticMetal burning = data.getCurrentlyBurning();
+        AllomanticMetal selected     = data.getCurrentlyBurning();
+        boolean         burningOn    = data.isBurningActive();
 
         for (int i = 0; i < unlocked.size(); i++) {
             AllomanticMetal metal = unlocked.get(i);
@@ -77,13 +79,22 @@ public class HudRenderer {
 
             float reserve  = data.getReserve(metal);
             boolean empty  = reserve <= 0f;
-            boolean active = metal == burning;
 
-            // Border highlight if currently burning
+            // A cell is "selected" when it is the chosen metal, or when it belongs to
+            // the Iron/Steel group (IRON is the group representative, STEEL is its partner).
+            boolean isSelected = (metal == selected)
+                    || (selected == AllomanticMetal.IRON && metal == AllomanticMetal.STEEL);
+            boolean active     = isSelected && burningOn;
+
+            // Gold border = F-toggle is ON; silver border = selected but F is off
             if (active) {
                 gfx.fill(cellX - 1, startY - 1,
                          cellX + CELL_WIDTH + 1, startY + CELL_HEIGHT + 1,
                          COL_BORDER_BURN);
+            } else if (isSelected) {
+                gfx.fill(cellX - 1, startY - 1,
+                         cellX + CELL_WIDTH + 1, startY + CELL_HEIGHT + 1,
+                         COL_BORDER_SELECT);
             }
 
             // Cell background
@@ -118,7 +129,7 @@ public class HudRenderer {
         }
 
         // ── Tin sound sidebar ──────────────────────────────────────────────────
-        if (burning == AllomanticMetal.TIN) {
+        if (selected == AllomanticMetal.TIN && burningOn) {
             renderTinSidebar(gfx, mc);
         }
     }

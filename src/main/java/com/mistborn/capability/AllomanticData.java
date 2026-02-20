@@ -16,6 +16,14 @@ import java.util.Set;
 /**
  * Persistent player data tracking Allomantic state.
  * Stored via NeoForge's IAttachmentType system and serialised to NBT.
+ *
+ * <p>Two related but separate concepts:</p>
+ * <ul>
+ *   <li>{@code currentlyBurning} – the metal currently <em>selected</em> (shown in HUD).
+ *       For the Iron/Steel group this is always {@link AllomanticMetal#IRON}.</li>
+ *   <li>{@code isBurningActive} – whether the player has toggled burning ON with F.
+ *       Effects only apply when this is {@code true}.</li>
+ * </ul>
  */
 public class AllomanticData implements INBTSerializable<CompoundTag> {
 
@@ -25,14 +33,17 @@ public class AllomanticData implements INBTSerializable<CompoundTag> {
     /** Current reserve of each metal, 0.0 – 100.0. */
     private final Map<AllomanticMetal, Float> reserves = new EnumMap<>(AllomanticMetal.class);
 
-    /** The metal currently being burned, or null if none. */
+    /**
+     * The metal currently selected (may or may not be actively burning).
+     * {@code null} if nothing has been selected yet.
+     * For the Iron/Steel group, this is always {@link AllomanticMetal#IRON}.
+     */
     private AllomanticMetal currentlyBurning = null;
 
-    /** Convenience flag set when Pewter is burning (affects weight-class logic). */
-    private boolean isPewterBurning = false;
-
-    /** Set while Copper is being burned; suppresses Bronze detection. */
-    private boolean isCopperActive = false;
+    /**
+     * Whether the F-toggle is on. Effects drain reserves and apply only when true.
+     */
+    private boolean isBurningActive = false;
 
     /**
      * Dirty flag – set whenever data changes so the sync packet is only
@@ -84,27 +95,61 @@ public class AllomanticData implements INBTSerializable<CompoundTag> {
         return newVal;
     }
 
-    // ── Burning state ────────────────────────────────────────────────────────
+    // ── Selected metal ───────────────────────────────────────────────────────
 
+    /**
+     * Returns the currently selected metal, or {@code null} if none selected.
+     * For the Iron/Steel group this is always {@link AllomanticMetal#IRON}.
+     */
     public AllomanticMetal getCurrentlyBurning() {
         return currentlyBurning;
     }
 
+    /**
+     * Sets the selected metal without changing the burn-active toggle.
+     * Pass {@code null} to clear the selection entirely.
+     */
     public void setCurrentlyBurning(AllomanticMetal metal) {
         if (currentlyBurning != metal) {
             currentlyBurning = metal;
-            isPewterBurning  = (metal == AllomanticMetal.PEWTER);
-            isCopperActive   = (metal == AllomanticMetal.COPPER);
             dirty = true;
         }
     }
 
-    public boolean isPewterBurning() {
-        return isPewterBurning;
+    // ── Burn-active toggle ───────────────────────────────────────────────────
+
+    /** Returns true if the F-toggle is on (burning is active). */
+    public boolean isBurningActive() {
+        return isBurningActive;
     }
 
+    /**
+     * Sets the burn-active state (the F-toggle).
+     * Does nothing if there is no selected metal.
+     */
+    public void setBurningActive(boolean active) {
+        if (isBurningActive != active) {
+            isBurningActive = active;
+            dirty = true;
+        }
+    }
+
+    // ── Derived convenience flags ─────────────────────────────────────────────
+
+    /**
+     * True when Pewter is selected AND burning is active.
+     * Used by {@link com.mistborn.power.IronSteelHandler} for weight-class elevation.
+     */
+    public boolean isPewterBurning() {
+        return currentlyBurning == AllomanticMetal.PEWTER && isBurningActive;
+    }
+
+    /**
+     * True when Copper is selected AND burning is active.
+     * Used to suppress Bronze pulse detection.
+     */
     public boolean isCopperActive() {
-        return isCopperActive;
+        return currentlyBurning == AllomanticMetal.COPPER && isBurningActive;
     }
 
     // ── Dirty flag ───────────────────────────────────────────────────────────
@@ -141,10 +186,13 @@ public class AllomanticData implements INBTSerializable<CompoundTag> {
         }
         tag.put("reserves", reservesTag);
 
-        // Currently burning
+        // Selected metal
         if (currentlyBurning != null) {
             tag.putString("currentlyBurning", currentlyBurning.name());
         }
+
+        // Burn-active toggle
+        tag.putBoolean("isBurningActive", isBurningActive);
 
         return tag;
     }
@@ -154,8 +202,7 @@ public class AllomanticData implements INBTSerializable<CompoundTag> {
         unlockedMetals.clear();
         reserves.clear();
         currentlyBurning = null;
-        isPewterBurning  = false;
-        isCopperActive   = false;
+        isBurningActive  = false;
 
         // Unlocked metals
         if (tag.contains("unlockedMetals", Tag.TAG_LIST)) {
@@ -176,14 +223,15 @@ public class AllomanticData implements INBTSerializable<CompoundTag> {
             }
         }
 
-        // Currently burning
+        // Selected metal
         if (tag.contains("currentlyBurning", Tag.TAG_STRING)) {
             AllomanticMetal m = AllomanticMetal.fromName(tag.getString("currentlyBurning"));
-            if (m != null) {
-                currentlyBurning = m;
-                isPewterBurning  = (m == AllomanticMetal.PEWTER);
-                isCopperActive   = (m == AllomanticMetal.COPPER);
-            }
+            if (m != null) currentlyBurning = m;
+        }
+
+        // Burn-active toggle
+        if (tag.contains("isBurningActive", Tag.TAG_BYTE)) {
+            isBurningActive = tag.getBoolean("isBurningActive");
         }
     }
 
@@ -199,8 +247,7 @@ public class AllomanticData implements INBTSerializable<CompoundTag> {
         reserves.putAll(other.reserves);
 
         currentlyBurning = other.currentlyBurning;
-        isPewterBurning  = other.isPewterBurning;
-        isCopperActive   = other.isCopperActive;
+        isBurningActive  = other.isBurningActive;
 
         dirty = false;
     }

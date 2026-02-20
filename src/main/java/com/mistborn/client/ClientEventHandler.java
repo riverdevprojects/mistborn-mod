@@ -12,42 +12,59 @@ import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.neoforged.neoforge.client.event.sound.PlaySoundEvent;
 import net.neoforged.neoforge.event.tick.LevelTickEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
-
-import static com.mistborn.MistbornMod.MODID;
+import org.lwjgl.glfw.GLFW;
 
 /**
  * Handles all client-side NeoForge events for the Mistborn mod.
  *
  * <p>Registered on the NeoForge event bus (not the mod bus) in
  * {@link com.mistborn.MistbornClient} for client-only events.</p>
+ *
+ * <h2>Control scheme</h2>
+ * <ul>
+ *   <li><b>V (hold)</b> – Show radial wheel; <b>1-8</b> while held instantly select a slot
+ *       and commit it immediately; releasing V commits the mouse-hovered slot.</li>
+ *   <li><b>F (press)</b> – Toggle burning on/off for the currently selected metal.
+ *       Switching metals via V while burning turns F off automatically (server-side).</li>
+ *   <li><b>Left-click</b> – Steel Push: only fires when the Iron/Steel group is selected
+ *       and the F-toggle is active; otherwise normal Minecraft attack.</li>
+ *   <li><b>Right-click</b> – Iron Pull: same guard; otherwise normal Minecraft use.</li>
+ * </ul>
  */
 public class ClientEventHandler {
 
     // ── State ─────────────────────────────────────────────────────────────────
 
-    /** True while the radial menu key was held last frame (for release detection). */
+    /** True while the radial-menu key (V) was held last frame. */
     private static boolean wasRadialHeld = false;
 
-    /** True while the burn key was held last frame. */
+    /**
+     * Set to true when a number key commits a slot during the current V-hold.
+     * Prevents V-release from double-committing.
+     */
+    private static boolean numberKeySelectedThisCycle = false;
+
+    /** Per-number-key previous held state (index 0 = key 1 … index 7 = key 8). */
+    private static final boolean[] wasNumKeyHeld = new boolean[8];
+
+    /** GLFW key codes for number row keys 1-8. */
+    private static final int[] NUM_KEY_CODES = {
+            GLFW.GLFW_KEY_1, GLFW.GLFW_KEY_2, GLFW.GLFW_KEY_3, GLFW.GLFW_KEY_4,
+            GLFW.GLFW_KEY_5, GLFW.GLFW_KEY_6, GLFW.GLFW_KEY_7, GLFW.GLFW_KEY_8
+    };
+
+    /** True while the burn-toggle key (F) was held last frame. */
     private static boolean wasBurnHeld = false;
 
-    /** True while the push key was held last frame. */
-    private static boolean wasPushHeld = false;
-
-    /** True while the pull key was held last frame. */
-    private static boolean wasPullHeld = false;
-
-    /** Tick counter for rate-limiting push/pull packet sends. */
+    /** Tick counter for rate-limiting push/pull mouse-click packet sends. */
     private static int pushPullCooldown = 0;
 
     // ── GUI rendering ─────────────────────────────────────────────────────────
 
     @SubscribeEvent
     public void onRenderGui(RenderGuiEvent.Post event) {
-        // HUD overlay
         HudRenderer.render(event.getGuiGraphics());
 
-        // Radial menu (only when key is held)
         if (ModKeybinds.KEY_RADIAL.isDown()) {
             RadialMenuRenderer.render(event.getGuiGraphics());
         }
@@ -65,85 +82,129 @@ public class ClientEventHandler {
 
     @SubscribeEvent
     public void onClientTick(LevelTickEvent.Pre event) {
-        // Only run for client-side levels
         if (!event.getLevel().isClientSide()) return;
 
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
 
-        // Prune expired Tin sound entries
         TinSoundTracker.tick();
 
-        // Decrement push/pull cooldown
         if (pushPullCooldown > 0) pushPullCooldown--;
 
         handleRadialKey(mc);
         handleBurnKey(mc);
-        handlePushKey(mc);
-        handlePullKey(mc);
+        handleMouseButtons(mc);
     }
 
     // ── Keybind handlers ──────────────────────────────────────────────────────
 
+    /**
+     * Handles the radial-wheel key (V hold).
+     *
+     * <ul>
+     *   <li>While V is held: polls number keys 1-8; a rising edge immediately
+     *       force-hovers and commits that slot index.</li>
+     *   <li>When V is released: if no number key was used this cycle, commits
+     *       the mouse-hovered slot (or auto-selects if there's only one slot).</li>
+     * </ul>
+     */
     private static void handleRadialKey(Minecraft mc) {
         boolean held = ModKeybinds.KEY_RADIAL.isDown();
+        long    win  = mc.getWindow().getWindow();
 
-        if (!held && wasRadialHeld) {
-            // Key released – commit the hovered metal selection
-            AllomanticMetal hovered = RadialMenuRenderer.getHoveredMetal();
-            if (hovered != null) {
-                PacketDistributor.sendToServer(ClientActionPacket.selectMetal(hovered));
-            } else {
-                // Auto-select if only one metal unlocked
-                if (mc.player != null && mc.player.hasData(ModAttachments.ALLOMANTIC_DATA.get())) {
-                    AllomanticData data = mc.player.getData(ModAttachments.ALLOMANTIC_DATA.get());
-                    var unlocked = data.getUnlockedMetals();
-                    if (unlocked.size() == 1) {
-                        AllomanticMetal sole = unlocked.iterator().next();
-                        if (data.getReserve(sole) > 0f) {
+        if (held) {
+            // Poll number keys for instant slot selection
+            for (int i = 0; i < NUM_KEY_CODES.length; i++) {
+                boolean numHeld = GLFW.glfwGetKey(win, NUM_KEY_CODES[i]) == GLFW.GLFW_PRESS;
+                if (numHeld && !wasNumKeyHeld[i]) {
+                    // Rising edge – pin this slot in the renderer and commit immediately
+                    RadialMenuRenderer.forceHoverIndex(i);
+                    AllomanticMetal selected = RadialMenuRenderer.getHoveredMetal();
+                    if (selected != null) {
+                        PacketDistributor.sendToServer(ClientActionPacket.selectMetal(selected));
+                        numberKeySelectedThisCycle = true;
+                    }
+                }
+                wasNumKeyHeld[i] = numHeld;
+            }
+        } else {
+            // V released
+            if (wasRadialHeld) {
+                if (!numberKeySelectedThisCycle) {
+                    // Commit mouse-hovered slot
+                    AllomanticMetal hovered = RadialMenuRenderer.getHoveredMetal();
+                    if (hovered != null) {
+                        PacketDistributor.sendToServer(ClientActionPacket.selectMetal(hovered));
+                    } else if (RadialMenuRenderer.getSlotCount() == 1) {
+                        // Auto-select the sole slot even if mouse was in dead-zone
+                        RadialMenuRenderer.forceHoverIndex(0);
+                        AllomanticMetal sole = RadialMenuRenderer.getHoveredMetal();
+                        if (sole != null) {
                             PacketDistributor.sendToServer(ClientActionPacket.selectMetal(sole));
                         }
                     }
                 }
+                numberKeySelectedThisCycle = false;
+                RadialMenuRenderer.resetHover();
             }
-            RadialMenuRenderer.resetHover();
+
+            // Clear number-key tracking when V is not held
+            for (int i = 0; i < wasNumKeyHeld.length; i++) wasNumKeyHeld[i] = false;
         }
 
         wasRadialHeld = held;
     }
 
+    /**
+     * Handles the burn-toggle key (F).
+     * Fires {@link ClientActionPacket#toggleBurn()} on the <em>rising edge</em>
+     * (key just pressed), not on release.
+     */
     private static void handleBurnKey(Minecraft mc) {
         boolean held = ModKeybinds.KEY_BURN.isDown();
 
-        if (!held && wasBurnHeld) {
-            // Key released – stop burning
-            PacketDistributor.sendToServer(ClientActionPacket.stopBurn());
+        if (held && !wasBurnHeld) {
+            // Rising edge – send toggle
+            PacketDistributor.sendToServer(ClientActionPacket.toggleBurn());
         }
 
         wasBurnHeld = held;
     }
 
-    private static void handlePushKey(Minecraft mc) {
-        boolean held = ModKeybinds.KEY_PUSH.isDown();
+    /**
+     * Handles left-click (Push) and right-click (Pull) for the Iron/Steel group.
+     *
+     * <p>Only active when {@link AllomanticMetal#IRON} is selected (representing the
+     * Iron/Steel group) and the F-toggle is on.  Uses a 2-tick rate-limit to avoid
+     * flooding the server, consistent with the old dedicated key approach.</p>
+     */
+    private static void handleMouseButtons(Minecraft mc) {
+        if (mc.player == null) return;
+        if (!mc.player.hasData(ModAttachments.ALLOMANTIC_DATA.get())) return;
 
-        if (held && pushPullCooldown <= 0) {
-            // Rate-limit to every 2 ticks while held
-            PacketDistributor.sendToServer(ClientActionPacket.requestPush());
-            pushPullCooldown = 2;
+        AllomanticData data = mc.player.getData(ModAttachments.ALLOMANTIC_DATA.get());
+
+        // Iron/Steel group is represented by IRON as the selected metal
+        boolean ironSteelActive = data.getCurrentlyBurning() == AllomanticMetal.IRON
+                && data.isBurningActive();
+
+        if (!ironSteelActive) return;
+
+        long    win       = mc.getWindow().getWindow();
+        boolean leftHeld  = GLFW.glfwGetMouseButton(win, GLFW.GLFW_MOUSE_BUTTON_LEFT)  == GLFW.GLFW_PRESS;
+        boolean rightHeld = GLFW.glfwGetMouseButton(win, GLFW.GLFW_MOUSE_BUTTON_RIGHT) == GLFW.GLFW_PRESS;
+
+        if (pushPullCooldown <= 0) {
+            if (leftHeld) {
+                // Left-click → Steel Push
+                PacketDistributor.sendToServer(ClientActionPacket.requestPush());
+                pushPullCooldown = 2;
+            } else if (rightHeld) {
+                // Right-click → Iron Pull
+                PacketDistributor.sendToServer(ClientActionPacket.requestPull());
+                pushPullCooldown = 2;
+            }
         }
-
-        wasPushHeld = held;
-    }
-
-    private static void handlePullKey(Minecraft mc) {
-        boolean held = ModKeybinds.KEY_PULL.isDown();
-
-        if (held && pushPullCooldown <= 0) {
-            PacketDistributor.sendToServer(ClientActionPacket.requestPull());
-            pushPullCooldown = 2;
-        }
-
-        wasPullHeld = held;
     }
 
     // ── Sound interception for Tin ────────────────────────────────────────────
@@ -155,7 +216,9 @@ public class ClientEventHandler {
         if (!mc.player.hasData(ModAttachments.ALLOMANTIC_DATA.get())) return;
 
         AllomanticData data = mc.player.getData(ModAttachments.ALLOMANTIC_DATA.get());
+        // Only intercept sounds when Tin is selected AND actively burning
         if (data.getCurrentlyBurning() != AllomanticMetal.TIN) return;
+        if (!data.isBurningActive()) return;
 
         var sound = event.getSound();
         if (sound == null) return;
@@ -163,7 +226,6 @@ public class ClientEventHandler {
         net.minecraft.world.phys.Vec3 soundPos = new net.minecraft.world.phys.Vec3(
                 sound.getX(), sound.getY(), sound.getZ());
 
-        String soundName = sound.getLocation().toString();
-        TinSoundTracker.onSoundPlayed(soundName, soundPos);
+        TinSoundTracker.onSoundPlayed(sound.getLocation().toString(), soundPos);
     }
 }
