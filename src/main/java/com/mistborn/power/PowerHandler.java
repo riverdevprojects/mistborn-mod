@@ -30,43 +30,63 @@ public class PowerHandler {
      */
     public static void onPlayerTick(ServerPlayer player) {
         AllomanticData data = player.getData(ModAttachments.ALLOMANTIC_DATA.get());
-        AllomanticMetal burning = data.getCurrentlyBurning();
+        AllomanticMetal selected = data.getCurrentlyBurning();
 
-        if (burning == null) {
+        // Nothing selected, or F-toggle is off: no effects this tick
+        if (selected == null || !data.isBurningActive()) {
             ModNetwork.syncIfDirty(player);
             return;
         }
 
-        // Check reserve
-        float reserve = data.getReserve(burning);
-        if (reserve <= 0f) {
-            data.setCurrentlyBurning(null);
-            ModNetwork.syncIfDirty(player);
-            return;
+        float burnRate = (float) MistbornConfig.BURN_RATE.get().doubleValue();
+
+        if (selected == AllomanticMetal.IRON) {
+            // Iron/Steel group – drain both reserves at half-rate per tick.
+            // The player can push as long as Steel has reserve, pull as long as Iron has reserve.
+            float ironLeft  = data.getReserve(AllomanticMetal.IRON);
+            float steelLeft = data.getReserve(AllomanticMetal.STEEL);
+
+            if (ironLeft <= 0f && steelLeft <= 0f) {
+                // Both depleted: auto-stop burning (keep metal selected)
+                data.setBurningActive(false);
+                ModNetwork.syncIfDirty(player);
+                return;
+            }
+
+            // Drain each at half the normal rate (burning both simultaneously)
+            float half = burnRate * 0.5f;
+            if (ironLeft  > 0f) data.drainReserve(AllomanticMetal.IRON,  half);
+            if (steelLeft > 0f) data.drainReserve(AllomanticMetal.STEEL, half);
+
+            // Iron/Steel effects are entirely key-driven (mouse clicks send push/pull packets)
+
+        } else {
+            // All other metals: standard single-reserve drain
+            float reserve = data.getReserve(selected);
+            if (reserve <= 0f) {
+                data.setBurningActive(false);
+                ModNetwork.syncIfDirty(player);
+                return;
+            }
+
+            float newReserve = data.drainReserve(selected, burnRate);
+
+            // Apply per-tick metal effect
+            switch (selected) {
+                case PEWTER -> PewterHandler.tick(player);
+                case TIN    -> TinHandler.tick(player);
+                case COPPER -> CopperHandler.tick(player);
+                case BRONZE -> BronzeHandler.tick(player);
+                case BRASS  -> BrassHandler.tick(player);
+                case ZINC   -> ZincHandler.tick(player);
+                default     -> { /* IRON/STEEL handled above; others future-proof */ }
+            }
+
+            if (newReserve <= 0f) {
+                data.setBurningActive(false);
+            }
         }
 
-        // Drain reserve
-        float newReserve = data.drainReserve(burning, (float) MistbornConfig.BURN_RATE.get().doubleValue());
-
-        // Apply metal effect
-        switch (burning) {
-            case PEWTER -> PewterHandler.tick(player);
-            case TIN    -> TinHandler.tick(player);
-            case COPPER -> CopperHandler.tick(player);
-            case BRONZE -> BronzeHandler.tick(player);
-            case BRASS  -> BrassHandler.tick(player);
-            case ZINC   -> ZincHandler.tick(player);
-            case IRON   -> { /* Iron effects are entirely client-driven visuals;
-                                pull is triggered by key-bind packet */ }
-            case STEEL  -> { /* Same – push is key-driven */ }
-        }
-
-        // Auto-stop if reserve just ran out
-        if (newReserve <= 0f) {
-            data.setCurrentlyBurning(null);
-        }
-
-        // Sync when dirty
         ModNetwork.syncIfDirty(player);
     }
 
