@@ -19,10 +19,11 @@ import java.util.Set;
  *
  * <p>Two related but separate concepts:</p>
  * <ul>
- *   <li>{@code currentlyBurning} – the metal currently <em>selected</em> (shown in HUD).
- *       For the Iron/Steel group this is always {@link AllomanticMetal#IRON}.</li>
- *   <li>{@code isBurningActive} – whether the player has toggled burning ON with F.
- *       Effects only apply when this is {@code true}.</li>
+ *   <li>{@code setMetals} – metals currently <em>set</em> (queued) via the radial wheel.
+ *       A metal is "set" when the player selects it in the radial; selecting again un-sets it.
+ *       Multiple metals can be set simultaneously.</li>
+ *   <li>{@code activeMetals} – metals currently <em>burning</em> (F-toggle ON).
+ *       Pressing F activates all set metals at once; pressing F again deactivates all.</li>
  * </ul>
  */
 public class AllomanticData implements INBTSerializable<CompoundTag> {
@@ -34,16 +35,22 @@ public class AllomanticData implements INBTSerializable<CompoundTag> {
     private final Map<AllomanticMetal, Float> reserves = new EnumMap<>(AllomanticMetal.class);
 
     /**
-     * The metal currently selected (may or may not be actively burning).
-     * {@code null} if nothing has been selected yet.
-     * For the Iron/Steel group, this is always {@link AllomanticMetal#IRON}.
+     * Metals currently "set" (queued) via the radial wheel.
+     * Multiple metals can be set simultaneously.
      */
-    private AllomanticMetal currentlyBurning = null;
+    private final Set<AllomanticMetal> setMetals = EnumSet.noneOf(AllomanticMetal.class);
 
     /**
-     * Whether the F-toggle is on. Effects drain reserves and apply only when true.
+     * Metals currently actively burning (F-toggle is ON for these metals).
+     * Always a subset of setMetals.
      */
-    private boolean isBurningActive = false;
+    private final Set<AllomanticMetal> activeMetals = EnumSet.noneOf(AllomanticMetal.class);
+
+    /**
+     * Transient cooldown (ticks) set when the player iron-pulls toward a HEAVY block.
+     * While > 0, fall/impact damage is negated. Not serialized – intentionally ephemeral.
+     */
+    private transient int ironPullBlockCooldown = 0;
 
     /**
      * Dirty flag – set whenever data changes so the sync packet is only
@@ -95,61 +102,143 @@ public class AllomanticData implements INBTSerializable<CompoundTag> {
         return newVal;
     }
 
-    // ── Selected metal ───────────────────────────────────────────────────────
+    // ── Set metals (queued via radial wheel) ──────────────────────────────────
 
-    /**
-     * Returns the currently selected metal, or {@code null} if none selected.
-     * For the Iron/Steel group this is always {@link AllomanticMetal#IRON}.
-     */
-    public AllomanticMetal getCurrentlyBurning() {
-        return currentlyBurning;
+    public Set<AllomanticMetal> getSetMetals() {
+        return setMetals;
     }
 
-    /**
-     * Sets the selected metal without changing the burn-active toggle.
-     * Pass {@code null} to clear the selection entirely.
-     */
-    public void setCurrentlyBurning(AllomanticMetal metal) {
-        if (currentlyBurning != metal) {
-            currentlyBurning = metal;
+    public boolean isMetalSet(AllomanticMetal metal) {
+        return setMetals.contains(metal);
+    }
+
+    public void addToSet(AllomanticMetal metal) {
+        if (setMetals.add(metal)) dirty = true;
+    }
+
+    public void removeFromSet(AllomanticMetal metal) {
+        if (setMetals.remove(metal)) dirty = true;
+    }
+
+    // ── Active metals (burning – F-toggle) ───────────────────────────────────
+
+    public Set<AllomanticMetal> getActiveMetals() {
+        return activeMetals;
+    }
+
+    public boolean isMetalActive(AllomanticMetal metal) {
+        return activeMetals.contains(metal);
+    }
+
+    public void addToActive(AllomanticMetal metal) {
+        if (activeMetals.add(metal)) dirty = true;
+    }
+
+    public void removeFromActive(AllomanticMetal metal) {
+        if (activeMetals.remove(metal)) dirty = true;
+    }
+
+    public void clearActiveMetals() {
+        if (!activeMetals.isEmpty()) {
+            activeMetals.clear();
             dirty = true;
         }
     }
 
-    // ── Burn-active toggle ───────────────────────────────────────────────────
+    public void setActiveMetals(Set<AllomanticMetal> metals) {
+        activeMetals.clear();
+        activeMetals.addAll(metals);
+        dirty = true;
+    }
 
-    /** Returns true if the F-toggle is on (burning is active). */
-    public boolean isBurningActive() {
-        return isBurningActive;
+    // ── Iron pull block cooldown ──────────────────────────────────────────────
+
+    /** Set when the player iron-pulls toward a HEAVY block; prevents landing damage. */
+    public void setIronPullBlockCooldown(int ticks) {
+        ironPullBlockCooldown = ticks;
+    }
+
+    public int getIronPullBlockCooldown() {
+        return ironPullBlockCooldown;
+    }
+
+    /** Decrement the cooldown by one tick (called from PowerHandler each tick). */
+    public void tickIronPullBlockCooldown() {
+        if (ironPullBlockCooldown > 0) ironPullBlockCooldown--;
+    }
+
+    // ── Backward-compatibility shims (used by legacy sync/packet paths) ───────
+
+    /**
+     * Returns the first active metal by enum ordinal, or the first set metal, or null.
+     * Kept for code paths that only care about a single "current" metal (e.g. packet handlers
+     * that haven't been fully updated yet).
+     */
+    public AllomanticMetal getCurrentlyBurning() {
+        if (!activeMetals.isEmpty()) return activeMetals.iterator().next();
+        if (!setMetals.isEmpty()) return setMetals.iterator().next();
+        return null;
     }
 
     /**
-     * Sets the burn-active state (the F-toggle).
-     * Does nothing if there is no selected metal.
+     * Clears setMetals and sets it to just this metal (and STEEL if metal is IRON).
+     * Kept for backward compatibility with the old single-selection model.
+     * Pass {@code null} to clear everything.
+     */
+    public void setCurrentlyBurning(AllomanticMetal metal) {
+        setMetals.clear();
+        activeMetals.clear();
+        if (metal != null) {
+            setMetals.add(metal);
+            if (metal == AllomanticMetal.IRON) {
+                setMetals.add(AllomanticMetal.STEEL);
+            }
+        }
+        dirty = true;
+    }
+
+    /**
+     * Returns true if any metal is actively burning (F-toggle is on for at least one metal).
+     */
+    public boolean isBurningActive() {
+        return !activeMetals.isEmpty();
+    }
+
+    /**
+     * If {@code active} is true, activates all set metals. If false, clears all active metals.
+     * Kept for backward compatibility with the old single-burn-toggle model.
      */
     public void setBurningActive(boolean active) {
-        if (isBurningActive != active) {
-            isBurningActive = active;
-            dirty = true;
+        if (active) {
+            if (!activeMetals.equals(setMetals)) {
+                activeMetals.clear();
+                activeMetals.addAll(setMetals);
+                dirty = true;
+            }
+        } else {
+            if (!activeMetals.isEmpty()) {
+                activeMetals.clear();
+                dirty = true;
+            }
         }
     }
 
     // ── Derived convenience flags ─────────────────────────────────────────────
 
     /**
-     * True when Pewter is selected AND burning is active.
+     * True when Pewter is actively burning.
      * Used by {@link com.mistborn.power.IronSteelHandler} for weight-class elevation.
      */
     public boolean isPewterBurning() {
-        return currentlyBurning == AllomanticMetal.PEWTER && isBurningActive;
+        return activeMetals.contains(AllomanticMetal.PEWTER);
     }
 
     /**
-     * True when Copper is selected AND burning is active.
+     * True when Copper is actively burning.
      * Used to suppress Bronze pulse detection.
      */
     public boolean isCopperActive() {
-        return currentlyBurning == AllomanticMetal.COPPER && isBurningActive;
+        return activeMetals.contains(AllomanticMetal.COPPER);
     }
 
     // ── Dirty flag ───────────────────────────────────────────────────────────
@@ -186,13 +275,19 @@ public class AllomanticData implements INBTSerializable<CompoundTag> {
         }
         tag.put("reserves", reservesTag);
 
-        // Selected metal
-        if (currentlyBurning != null) {
-            tag.putString("currentlyBurning", currentlyBurning.name());
+        // Set metals (queued)
+        ListTag setList = new ListTag();
+        for (AllomanticMetal m : setMetals) {
+            setList.add(StringTag.valueOf(m.name()));
         }
+        tag.put("setMetals", setList);
 
-        // Burn-active toggle
-        tag.putBoolean("isBurningActive", isBurningActive);
+        // Active metals (burning)
+        ListTag activeList = new ListTag();
+        for (AllomanticMetal m : activeMetals) {
+            activeList.add(StringTag.valueOf(m.name()));
+        }
+        tag.put("activeMetals", activeList);
 
         return tag;
     }
@@ -201,8 +296,8 @@ public class AllomanticData implements INBTSerializable<CompoundTag> {
     public void deserializeNBT(HolderLookup.Provider provider, CompoundTag tag) {
         unlockedMetals.clear();
         reserves.clear();
-        currentlyBurning = null;
-        isBurningActive  = false;
+        setMetals.clear();
+        activeMetals.clear();
 
         // Unlocked metals
         if (tag.contains("unlockedMetals", Tag.TAG_LIST)) {
@@ -223,21 +318,40 @@ public class AllomanticData implements INBTSerializable<CompoundTag> {
             }
         }
 
-        // Selected metal
-        if (tag.contains("currentlyBurning", Tag.TAG_STRING)) {
+        // Set metals – new format
+        if (tag.contains("setMetals", Tag.TAG_LIST)) {
+            ListTag list = tag.getList("setMetals", Tag.TAG_STRING);
+            for (int i = 0; i < list.size(); i++) {
+                AllomanticMetal m = AllomanticMetal.fromName(list.getString(i));
+                if (m != null) setMetals.add(m);
+            }
+        } else if (tag.contains("currentlyBurning", Tag.TAG_STRING)) {
+            // Backward compat: migrate old single-selection save data
             AllomanticMetal m = AllomanticMetal.fromName(tag.getString("currentlyBurning"));
-            if (m != null) currentlyBurning = m;
+            if (m != null) {
+                setMetals.add(m);
+                if (m == AllomanticMetal.IRON) setMetals.add(AllomanticMetal.STEEL);
+            }
         }
 
-        // Burn-active toggle
-        if (tag.contains("isBurningActive", Tag.TAG_BYTE)) {
-            isBurningActive = tag.getBoolean("isBurningActive");
+        // Active metals – new format
+        if (tag.contains("activeMetals", Tag.TAG_LIST)) {
+            ListTag list = tag.getList("activeMetals", Tag.TAG_STRING);
+            for (int i = 0; i < list.size(); i++) {
+                AllomanticMetal m = AllomanticMetal.fromName(list.getString(i));
+                if (m != null) activeMetals.add(m);
+            }
+        } else if (tag.contains("isBurningActive", Tag.TAG_BYTE)) {
+            // Backward compat: migrate old burn-active flag
+            if (tag.getBoolean("isBurningActive")) {
+                activeMetals.addAll(setMetals);
+            }
         }
     }
 
     /**
      * Copy all state from {@code other} into this instance (used when applying
-     * a sync packet on the client).
+     * a sync packet on the client, or during player clone/respawn).
      */
     public void copyFrom(AllomanticData other) {
         unlockedMetals.clear();
@@ -246,9 +360,13 @@ public class AllomanticData implements INBTSerializable<CompoundTag> {
         reserves.clear();
         reserves.putAll(other.reserves);
 
-        currentlyBurning = other.currentlyBurning;
-        isBurningActive  = other.isBurningActive;
+        setMetals.clear();
+        setMetals.addAll(other.setMetals);
 
+        activeMetals.clear();
+        activeMetals.addAll(other.activeMetals);
+
+        // ironPullBlockCooldown is transient – not copied
         dirty = false;
     }
 }

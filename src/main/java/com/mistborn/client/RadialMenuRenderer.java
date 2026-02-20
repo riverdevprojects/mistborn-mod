@@ -46,13 +46,15 @@ public class RadialMenuRenderer {
     /**
      * A single segment on the radial wheel.
      *
-     * @param displayName  Text shown in the segment centre.
-     * @param argbColor    Packed ARGB color for the segment.
-     * @param representative  The metal sent to the server when this slot is selected.
-     * @param available    Whether this slot can be selected (has reserve).
+     * @param displayName    Text shown in the segment centre.
+     * @param argbColor      Packed ARGB color for the segment.
+     * @param representative The metal sent to the server when this slot is selected (toggled).
+     * @param available      Whether this slot can be selected (has reserve).
+     * @param isSet          Whether this metal is currently queued (set via a previous radial pick).
      */
     private record RadialSlot(String displayName, int argbColor,
-                               AllomanticMetal representative, boolean available) {}
+                               AllomanticMetal representative, boolean available,
+                               boolean isSet) {}
 
     /** Computed slot list rebuilt each render frame. */
     private static List<RadialSlot> currentSlots = new ArrayList<>();
@@ -182,8 +184,16 @@ public class RadialMenuRenderer {
             if (!slot.available()) {
                 baseCol = 0xAA444444;
             } else if (hovered) {
+                // Full brightness when the cursor is over this slot
                 baseCol = 0xFF000000 | (slot.argbColor() & 0x00FFFFFF);
+            } else if (slot.isSet()) {
+                // Already queued: show at 75% so it stands out from unset slots
+                int r = (int)(((slot.argbColor() >> 16) & 0xFF) * 0.75f);
+                int g = (int)(((slot.argbColor() >>  8) & 0xFF) * 0.75f);
+                int b = (int)(( slot.argbColor()        & 0xFF) * 0.75f);
+                baseCol = 0xFF000000 | (r << 16) | (g << 8) | b;
             } else {
+                // Unselected, not hovered: dim
                 int r = (int)(((slot.argbColor() >> 16) & 0xFF) * 0.55f);
                 int g = (int)(((slot.argbColor() >>  8) & 0xFF) * 0.55f);
                 int b = (int)(( slot.argbColor()        & 0xFF) * 0.55f);
@@ -219,7 +229,8 @@ public class RadialMenuRenderer {
             float ly = (float) Math.sin(midAngle) * labelR;
 
             boolean hovered = (i == hoveredIndex);
-            int textCol = !slot.available() ? 0xAAAAAA : (hovered ? 0xFFFFFF : 0xDDDDDD);
+            int textCol = !slot.available() ? 0xAAAAAA
+                    : (hovered ? 0xFFFFFF : (slot.isSet() ? 0xFFFFDD : 0xDDDDDD));
             String name = slot.displayName();
             int nameW   = mc.font.width(name);
             pose.pushPose();
@@ -257,6 +268,8 @@ public class RadialMenuRenderer {
                     float groupReserve = Math.max(ironReserve, steelReserve);
                     boolean groupAvail = groupReserve > 0f
                             && (data.isUnlocked(AllomanticMetal.IRON) || data.isUnlocked(AllomanticMetal.STEEL));
+                    boolean groupSet   = data.isMetalSet(AllomanticMetal.IRON)
+                            || data.isMetalSet(AllomanticMetal.STEEL);
 
                     // Blended purple-ish colour (mix of iron-blue and steel-red)
                     int ironCol  = AllomanticMetal.IRON.getColour();
@@ -267,14 +280,15 @@ public class RadialMenuRenderer {
                     int blendCol = 0xFF000000 | (blendR << 16) | (blendG << 8) | blendB;
 
                     slots.add(new RadialSlot("Iron/Steel", blendCol,
-                                             IRON_STEEL_REPRESENTATIVE, groupAvail));
+                                             IRON_STEEL_REPRESENTATIVE, groupAvail, groupSet));
                     ironSteelAdded = true;
                 }
                 // Skip STEEL separately since both are in one slot
             } else {
                 float reserve = data.getReserve(metal);
                 int color     = 0xFF000000 | metal.getColour();
-                slots.add(new RadialSlot(metal.getDisplayName(), color, metal, reserve > 0f));
+                boolean isSet = data.isMetalSet(metal);
+                slots.add(new RadialSlot(metal.getDisplayName(), color, metal, reserve > 0f, isSet));
             }
         }
 

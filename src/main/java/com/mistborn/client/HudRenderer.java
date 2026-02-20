@@ -70,9 +70,6 @@ public class HudRenderer {
                  startX + totalW + 2, startY + CELL_HEIGHT + 2,
                  COL_BACKGROUND);
 
-        AllomanticMetal selected     = data.getCurrentlyBurning();
-        boolean         burningOn    = data.isBurningActive();
-
         for (int i = 0; i < unlocked.size(); i++) {
             AllomanticMetal metal = unlocked.get(i);
             int cellX = startX + i * (CELL_WIDTH + CELL_PADDING);
@@ -80,11 +77,9 @@ public class HudRenderer {
             float reserve  = data.getReserve(metal);
             boolean empty  = reserve <= 0f;
 
-            // A cell is "selected" when it is the chosen metal, or when it belongs to
-            // the Iron/Steel group (IRON is the group representative, STEEL is its partner).
-            boolean isSelected = (metal == selected)
-                    || (selected == AllomanticMetal.IRON && metal == AllomanticMetal.STEEL);
-            boolean active     = isSelected && burningOn;
+            // "set" = queued via the radial wheel; "active" = F-toggle on for this metal.
+            boolean isSelected = data.isMetalSet(metal);
+            boolean active     = data.isMetalActive(metal);
 
             // Gold border = F-toggle is ON; silver border = selected but F is off
             if (active) {
@@ -129,7 +124,7 @@ public class HudRenderer {
         }
 
         // ── Tin sound sidebar ──────────────────────────────────────────────────
-        if (selected == AllomanticMetal.TIN && burningOn) {
+        if (data.isMetalActive(AllomanticMetal.TIN)) {
             renderTinSidebar(gfx, mc);
         }
     }
