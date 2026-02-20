@@ -11,7 +11,10 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Central dispatcher called each server tick for player burning logic and
@@ -19,6 +22,10 @@ import java.util.List;
  *
  * <p>Called from the server-side {@code PlayerTickEvent.Post} and
  * {@code LevelTickEvent.Post} listeners in {@code MistbornMod}.</p>
+ *
+ * <p>Multiple metals may be active simultaneously. Each active metal drains its
+ * own reserve and applies its effects every tick. If a reserve empties, that
+ * metal is automatically removed from the active set.</p>
  */
 public class PowerHandler {
 
@@ -26,65 +33,70 @@ public class PowerHandler {
 
     /**
      * Runs each server tick for every online player.
-     * Drains reserve, applies metal effects, syncs to client on change.
+     * Drains reserve for each active metal, applies metal effects, syncs to client.
      */
     public static void onPlayerTick(ServerPlayer player) {
         AllomanticData data = player.getData(ModAttachments.ALLOMANTIC_DATA.get());
-        AllomanticMetal selected = data.getCurrentlyBurning();
 
-        // Nothing selected, or F-toggle is off: no effects this tick
-        if (selected == null || !data.isBurningActive()) {
+        // Tick the iron-pull-block cooldown every tick regardless of burning state
+        data.tickIronPullBlockCooldown();
+
+        Set<AllomanticMetal> activeMetals = data.getActiveMetals();
+        if (activeMetals.isEmpty()) {
             ModNetwork.syncIfDirty(player);
             return;
         }
 
         float burnRate = (float) MistbornConfig.BURN_RATE.get().doubleValue();
 
-        if (selected == AllomanticMetal.IRON) {
-            // Iron/Steel group – drain both reserves at half-rate per tick.
-            // The player can push as long as Steel has reserve, pull as long as Iron has reserve.
-            float ironLeft  = data.getReserve(AllomanticMetal.IRON);
-            float steelLeft = data.getReserve(AllomanticMetal.STEEL);
+        // Track which metals ran out of reserve this tick and must be deactivated
+        Set<AllomanticMetal> depleted = new HashSet<>();
 
-            if (ironLeft <= 0f && steelLeft <= 0f) {
-                // Both depleted: auto-stop burning (keep metal selected)
-                data.setBurningActive(false);
-                ModNetwork.syncIfDirty(player);
-                return;
-            }
+        // ── Iron/Steel group ──────────────────────────────────────────────────
+        // Both drain at half the normal burn rate when active so burning them
+        // together costs the same total as burning any other single metal.
+        boolean ironActive  = activeMetals.contains(AllomanticMetal.IRON);
+        boolean steelActive = activeMetals.contains(AllomanticMetal.STEEL);
 
-            // Drain each at half the normal rate (burning both simultaneously)
-            float half = burnRate * 0.5f;
-            if (ironLeft  > 0f) data.drainReserve(AllomanticMetal.IRON,  half);
-            if (steelLeft > 0f) data.drainReserve(AllomanticMetal.STEEL, half);
+        if (ironActive) {
+            float remaining = data.drainReserve(AllomanticMetal.IRON, burnRate * 0.5f);
+            if (remaining <= 0f) depleted.add(AllomanticMetal.IRON);
+        }
+        if (steelActive) {
+            float remaining = data.drainReserve(AllomanticMetal.STEEL, burnRate * 0.5f);
+            if (remaining <= 0f) depleted.add(AllomanticMetal.STEEL);
+        }
+        // Iron/Steel push/pull effects are entirely key-driven (mouse-click packets)
 
-            // Iron/Steel effects are entirely key-driven (mouse clicks send push/pull packets)
+        // ── All other metals ──────────────────────────────────────────────────
+        for (AllomanticMetal metal : activeMetals) {
+            if (metal == AllomanticMetal.IRON || metal == AllomanticMetal.STEEL) continue;
 
-        } else {
-            // All other metals: standard single-reserve drain
-            float reserve = data.getReserve(selected);
+            float reserve = data.getReserve(metal);
             if (reserve <= 0f) {
-                data.setBurningActive(false);
-                ModNetwork.syncIfDirty(player);
-                return;
+                depleted.add(metal);
+                continue;
             }
 
-            float newReserve = data.drainReserve(selected, burnRate);
+            float newReserve = data.drainReserve(metal, burnRate);
 
-            // Apply per-tick metal effect
-            switch (selected) {
+            switch (metal) {
                 case PEWTER -> PewterHandler.tick(player);
                 case TIN    -> TinHandler.tick(player);
                 case COPPER -> CopperHandler.tick(player);
                 case BRONZE -> BronzeHandler.tick(player);
                 case BRASS  -> BrassHandler.tick(player);
                 case ZINC   -> ZincHandler.tick(player);
-                default     -> { /* IRON/STEEL handled above; others future-proof */ }
+                default     -> { /* future metals */ }
             }
 
-            if (newReserve <= 0f) {
-                data.setBurningActive(false);
-            }
+            if (newReserve <= 0f) depleted.add(metal);
+        }
+
+        // Remove depleted metals from active (and set) state
+        for (AllomanticMetal metal : depleted) {
+            data.removeFromActive(metal);
+            data.removeFromSet(metal);
         }
 
         ModNetwork.syncIfDirty(player);
@@ -114,7 +126,7 @@ public class PowerHandler {
      * collision.  Only steel-pushed item entities are tracked.
      */
     public static void tickProjectiles(ServerLevel level) {
-        List<ItemEntity> items = new java.util.ArrayList<>();
+        List<ItemEntity> items = new ArrayList<>();
         level.getAllEntities().forEach(entity -> {
             if (entity instanceof ItemEntity item
                     && item.hasData(ModAttachments.STEEL_PROJECTILE.get())
@@ -175,13 +187,23 @@ public class PowerHandler {
     // ── Fall damage hook ──────────────────────────────────────────────────────
 
     /**
-     * Called from {@code LivingFallEvent} to negate fall damage when Pewter is burning.
+     * Called from {@code LivingFallEvent} to negate fall/impact damage.
+     *
+     * <p>Damage is negated when:</p>
+     * <ul>
+     *   <li>Pewter is actively burning (raw physical enhancement), or</li>
+     *   <li>The iron-pull-block cooldown is active, meaning the player recently
+     *       pulled themselves toward a metal block and is landing against it.
+     *       In Mistborn lore the Allomancer can soften their arrival by modulating
+     *       the pull force, so no damage is appropriate.</li>
+     * </ul>
      *
      * @return true if fall damage should be negated
      */
     public static boolean shouldNegateFallDamage(LivingEntity entity) {
         if (!entity.hasData(ModAttachments.ALLOMANTIC_DATA.get())) return false;
-        return entity.getData(ModAttachments.ALLOMANTIC_DATA.get()).isPewterBurning();
+        AllomanticData data = entity.getData(ModAttachments.ALLOMANTIC_DATA.get());
+        return data.isPewterBurning() || data.getIronPullBlockCooldown() > 0;
     }
 
     private PowerHandler() {}

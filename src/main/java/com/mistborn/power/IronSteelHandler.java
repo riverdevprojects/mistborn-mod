@@ -264,6 +264,9 @@ public class IronSteelHandler {
                 // Player pulled toward block
                 Vec3 toBlock = target.position.subtract(playerPos).normalize();
                 applyVelocity(player, toBlock.scale(force), true);
+                // Grant a short damage-immunity window so the player doesn't take
+                // impact damage when they arrive at the block they pulled toward.
+                player.getData(ModAttachments.ALLOMANTIC_DATA.get()).setIronPullBlockCooldown(20);
             }
         }
     }

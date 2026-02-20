@@ -20,12 +20,18 @@ import static com.mistborn.MistbornMod.MODID;
 /**
  * Server → Client packet that syncs a player's {@link AllomanticData} to them.
  * Only sent when the dirty flag is set (i.e. data has actually changed).
+ *
+ * <p>Wire format (after unlocked-bitmask and reserves):</p>
+ * <ul>
+ *   <li>1 byte – setMetals bitmask (bit i = AllomanticMetal.values()[i] is set/queued)</li>
+ *   <li>1 byte – activeMetals bitmask (bit i = metal is actively burning)</li>
+ * </ul>
  */
 public record SyncAllomanticDataPacket(
         Set<AllomanticMetal> unlockedMetals,
         Map<AllomanticMetal, Float> reserves,
-        AllomanticMetal currentlyBurning, // may be null; represents selected metal
-        boolean isBurningActive           // F-toggle state
+        Set<AllomanticMetal> setMetals,
+        Set<AllomanticMetal> activeMetals
 ) implements CustomPacketPayload {
 
     public static final Type<SyncAllomanticDataPacket> TYPE =
@@ -37,31 +43,42 @@ public record SyncAllomanticDataPacket(
     // ── Encoding ──────────────────────────────────────────────────────────────
 
     private static void encode(FriendlyByteBuf buf, SyncAllomanticDataPacket pkt) {
+        AllomanticMetal[] vals = AllomanticMetal.values();
+
         // Unlocked metals – write as a bitmask (8 metals fit in 1 byte)
-        int mask = 0;
-        for (AllomanticMetal m : AllomanticMetal.values()) {
-            if (pkt.unlockedMetals.contains(m)) mask |= (1 << m.ordinal());
+        int unlockedMask = 0;
+        for (AllomanticMetal m : vals) {
+            if (pkt.unlockedMetals.contains(m)) unlockedMask |= (1 << m.ordinal());
         }
-        buf.writeByte(mask);
+        buf.writeByte(unlockedMask);
 
         // Reserves – write a float for every metal
-        for (AllomanticMetal m : AllomanticMetal.values()) {
+        for (AllomanticMetal m : vals) {
             buf.writeFloat(pkt.reserves.getOrDefault(m, 0f));
         }
 
-        // Currently selected metal (ordinal, or -1 for null)
-        buf.writeByte(pkt.currentlyBurning != null ? pkt.currentlyBurning.ordinal() : -1);
+        // setMetals bitmask
+        int setMask = 0;
+        for (AllomanticMetal m : vals) {
+            if (pkt.setMetals.contains(m)) setMask |= (1 << m.ordinal());
+        }
+        buf.writeByte(setMask);
 
-        // Burn-active flag
-        buf.writeBoolean(pkt.isBurningActive);
+        // activeMetals bitmask
+        int activeMask = 0;
+        for (AllomanticMetal m : vals) {
+            if (pkt.activeMetals.contains(m)) activeMask |= (1 << m.ordinal());
+        }
+        buf.writeByte(activeMask);
     }
 
     private static SyncAllomanticDataPacket decode(FriendlyByteBuf buf) {
-        int mask = buf.readByte() & 0xFF;
-        Set<AllomanticMetal> unlocked = EnumSet.noneOf(AllomanticMetal.class);
         AllomanticMetal[] vals = AllomanticMetal.values();
+
+        int unlockedMask = buf.readByte() & 0xFF;
+        Set<AllomanticMetal> unlocked = EnumSet.noneOf(AllomanticMetal.class);
         for (int i = 0; i < vals.length; i++) {
-            if ((mask & (1 << i)) != 0) unlocked.add(vals[i]);
+            if ((unlockedMask & (1 << i)) != 0) unlocked.add(vals[i]);
         }
 
         Map<AllomanticMetal, Float> reserves = new EnumMap<>(AllomanticMetal.class);
@@ -70,13 +87,19 @@ public record SyncAllomanticDataPacket(
             if (v != 0f) reserves.put(m, v);
         }
 
-        int burningOrdinal = buf.readByte();
-        AllomanticMetal burning = (burningOrdinal >= 0 && burningOrdinal < vals.length)
-                ? vals[burningOrdinal] : null;
+        int setMask = buf.readByte() & 0xFF;
+        Set<AllomanticMetal> setMetals = EnumSet.noneOf(AllomanticMetal.class);
+        for (int i = 0; i < vals.length; i++) {
+            if ((setMask & (1 << i)) != 0) setMetals.add(vals[i]);
+        }
 
-        boolean burningActive = buf.readBoolean();
+        int activeMask = buf.readByte() & 0xFF;
+        Set<AllomanticMetal> activeMetals = EnumSet.noneOf(AllomanticMetal.class);
+        for (int i = 0; i < vals.length; i++) {
+            if ((activeMask & (1 << i)) != 0) activeMetals.add(vals[i]);
+        }
 
-        return new SyncAllomanticDataPacket(unlocked, reserves, burning, burningActive);
+        return new SyncAllomanticDataPacket(unlocked, reserves, setMetals, activeMetals);
     }
 
     // ── Handling (client side) ────────────────────────────────────────────────
@@ -88,7 +111,7 @@ public record SyncAllomanticDataPacket(
 
             AllomanticData data = player.getData(ModAttachments.ALLOMANTIC_DATA.get());
 
-            // Apply received values
+            // Sync unlocked metals
             data.getUnlockedMetals().clear();
             data.getUnlockedMetals().addAll(unlockedMetals);
 
@@ -100,8 +123,13 @@ public record SyncAllomanticDataPacket(
                 if (target > 0)   data.addReserve(m, target);
             }
 
-            data.setCurrentlyBurning(currentlyBurning);
-            data.setBurningActive(isBurningActive);
+            // Sync set and active metals directly
+            data.getSetMetals().clear();
+            data.getSetMetals().addAll(setMetals);
+
+            data.getActiveMetals().clear();
+            data.getActiveMetals().addAll(activeMetals);
+
             data.clearDirty();
         });
     }
@@ -117,19 +145,24 @@ public record SyncAllomanticDataPacket(
      * Build a packet from live {@link AllomanticData}.
      */
     public static SyncAllomanticDataPacket of(AllomanticData data) {
-        Set<AllomanticMetal> unlocked = EnumSet.copyOf(
-                data.getUnlockedMetals().isEmpty()
-                        ? EnumSet.noneOf(AllomanticMetal.class)
-                        : data.getUnlockedMetals());
+        Set<AllomanticMetal> unlocked = data.getUnlockedMetals().isEmpty()
+                ? EnumSet.noneOf(AllomanticMetal.class)
+                : EnumSet.copyOf(data.getUnlockedMetals());
+
         Map<AllomanticMetal, Float> reserves = new EnumMap<>(AllomanticMetal.class);
         for (AllomanticMetal m : AllomanticMetal.values()) {
             float v = data.getReserve(m);
             if (v != 0f) reserves.put(m, v);
         }
-        return new SyncAllomanticDataPacket(
-                unlocked,
-                reserves,
-                data.getCurrentlyBurning(),
-                data.isBurningActive());
+
+        Set<AllomanticMetal> setMetals = data.getSetMetals().isEmpty()
+                ? EnumSet.noneOf(AllomanticMetal.class)
+                : EnumSet.copyOf(data.getSetMetals());
+
+        Set<AllomanticMetal> activeMetals = data.getActiveMetals().isEmpty()
+                ? EnumSet.noneOf(AllomanticMetal.class)
+                : EnumSet.copyOf(data.getActiveMetals());
+
+        return new SyncAllomanticDataPacket(unlocked, reserves, setMetals, activeMetals);
     }
 }

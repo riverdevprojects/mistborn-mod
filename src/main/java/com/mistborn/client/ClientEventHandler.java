@@ -184,9 +184,9 @@ public class ClientEventHandler {
 
         AllomanticData data = mc.player.getData(ModAttachments.ALLOMANTIC_DATA.get());
 
-        // Iron/Steel group is represented by IRON as the selected metal
-        boolean ironSteelActive = data.getCurrentlyBurning() == AllomanticMetal.IRON
-                && data.isBurningActive();
+        // Iron pull and Steel push are each independently active when their metal is burning
+        boolean ironSteelActive = data.isMetalActive(AllomanticMetal.IRON)
+                || data.isMetalActive(AllomanticMetal.STEEL);
 
         if (!ironSteelActive) return;
 
@@ -216,9 +216,8 @@ public class ClientEventHandler {
         if (!mc.player.hasData(ModAttachments.ALLOMANTIC_DATA.get())) return;
 
         AllomanticData data = mc.player.getData(ModAttachments.ALLOMANTIC_DATA.get());
-        // Only intercept sounds when Tin is selected AND actively burning
-        if (data.getCurrentlyBurning() != AllomanticMetal.TIN) return;
-        if (!data.isBurningActive()) return;
+        // Only intercept sounds when Tin is actively burning
+        if (!data.isMetalActive(AllomanticMetal.TIN)) return;
 
         var sound = event.getSound();
         if (sound == null) return;
