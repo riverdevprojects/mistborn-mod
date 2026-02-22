@@ -15,6 +15,7 @@ import java.util.Map;
 
 import static com.mistborn.MistbornMod.MODID;
 
+
 /**
  * Registry holder for all Mistborn items and the Mistborn creative tab.
  */
@@ -53,6 +54,12 @@ public class ModItems {
     public static final DeferredItem<MetalFlakeItem> BRASS_FLAKE =
             registerFlake(AllomanticMetal.BRASS, "brass_flake");
 
+    // ── Vial ──────────────────────────────────────────────────────────────────
+
+    /** An empty (or filled) Allomantic vial. Stores metal flakes as NBT. */
+    public static final DeferredItem<VialItem> VIAL =
+            ITEMS.register("vial", () -> new VialItem(new Item.Properties().stacksTo(16)));
+
     // ── Lookup map ────────────────────────────────────────────────────────────
 
     private static final Map<AllomanticMetal, DeferredItem<MetalFlakeItem>> BY_METAL =
@@ -78,6 +85,7 @@ public class ModItems {
                             .withTabsBefore(CreativeModeTabs.COMBAT)
                             .icon(() -> IRON_FLAKE.get().getDefaultInstance())
                             .displayItems((params, output) -> {
+                                output.accept(VIAL.get());
                                 output.accept(IRON_FLAKE.get());
                                 output.accept(STEEL_FLAKE.get());
                                 output.accept(TIN_FLAKE.get());

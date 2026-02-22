@@ -1,0 +1,12 @@
+{
+  "parent": "minecraft:block/cube",
+  "textures": {
+    "down":     "minecraft:block/dark_oak_planks",
+    "up":       "minecraft:block/stone",
+    "north":    "mistborn:block/vial_filler_front",
+    "south":    "mistborn:block/vial_filler_front",
+    "east":     "mistborn:block/vial_filler_side",
+    "west":     "mistborn:block/vial_filler_side",
+    "particle": "minecraft:block/stone"
+  }
+}

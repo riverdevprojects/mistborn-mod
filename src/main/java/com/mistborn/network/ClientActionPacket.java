@@ -13,9 +13,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
-import java.util.EnumSet;
 import java.util.List;
-import java.util.Set;
 
 import static com.mistborn.MistbornMod.MODID;
 
@@ -24,14 +22,15 @@ import static com.mistborn.MistbornMod.MODID;
  *
  * <ul>
  *   <li>{@link Action#SELECT_METAL}  – Player chose a slot from the radial wheel (V).
- *       <b>Toggles</b> the metal in/out of the set state without affecting burning.
- *       For the Iron/Steel group (represented by IRON), toggles both IRON and STEEL
- *       simultaneously.  Multiple metals can be set at once.</li>
+ *       <b>Toggles</b> the metal in/out of the set <em>and</em> active state simultaneously –
+ *       selecting a metal immediately starts burning it; deselecting stops burning.
+ *       For the Iron/Steel group (represented by IRON), toggles both IRON and STEEL together.</li>
  *   <li>{@link Action#TOGGLE_BURN}   – Player pressed F.
- *       If any metals are active, deactivates all of them.
- *       Otherwise activates all set metals that have reserve remaining.</li>
- *   <li>{@link Action#REQUEST_PULL}  – Player right-clicked (Iron/Steel group active, F on).</li>
- *   <li>{@link Action#REQUEST_PUSH}  – Player left-clicked (Iron/Steel group active, F on).</li>
+ *       Toggles the Iron/Steel <em>power</em> (push/pull effect) on or off while Iron or Steel
+ *       is actively burning. Iron and Steel continue to burn regardless; only the effect
+ *       is suppressed when power is off. Has no effect if neither Iron nor Steel is burning.</li>
+ *   <li>{@link Action#REQUEST_PULL}  – Player right-clicked (Iron active and power enabled).</li>
+ *   <li>{@link Action#REQUEST_PUSH}  – Player left-clicked (Steel active and power enabled).</li>
  * </ul>
  */
 public record ClientActionPacket(Action action, int metalOrdinal) implements CustomPacketPayload {
@@ -71,10 +70,10 @@ public record ClientActionPacket(Action action, int metalOrdinal) implements Cus
 
             switch (action) {
 
-                // Toggle a metal in/out of the set state (radial wheel V).
-                // Multiple metals can be set simultaneously.
-                // For the Iron/Steel group (represented by IRON), both IRON and STEEL
-                // are toggled together.
+                // Toggle a metal in/out of the set+active state (radial wheel V).
+                // Selecting a metal IMMEDIATELY starts burning it (adds to both set and active).
+                // Deselecting IMMEDIATELY stops burning (removes from both set and active).
+                // For the Iron/Steel group (represented by IRON), both IRON and STEEL are toggled together.
                 case SELECT_METAL -> {
                     AllomanticMetal[] vals = AllomanticMetal.values();
                     if (metalOrdinal < 0 || metalOrdinal >= vals.length) break;
@@ -86,62 +85,58 @@ public record ClientActionPacket(Action action, int metalOrdinal) implements Cus
                         boolean isSet = data.isMetalSet(AllomanticMetal.IRON)
                                      || data.isMetalSet(AllomanticMetal.STEEL);
                         if (isSet) {
-                            // Un-set both and stop their burning
+                            // Deselect both: stop burning immediately
                             data.removeFromSet(AllomanticMetal.IRON);
                             data.removeFromSet(AllomanticMetal.STEEL);
                             data.removeFromActive(AllomanticMetal.IRON);
                             data.removeFromActive(AllomanticMetal.STEEL);
                         } else {
-                            // Set whichever of the pair are unlocked and have reserve
+                            // Select whichever of the pair are unlocked and have reserve;
+                            // immediately mark them active (start burning)
                             if (data.isUnlocked(AllomanticMetal.IRON)
                                     && data.getReserve(AllomanticMetal.IRON) > 0f) {
                                 data.addToSet(AllomanticMetal.IRON);
+                                data.addToActive(AllomanticMetal.IRON);
                             }
                             if (data.isUnlocked(AllomanticMetal.STEEL)
                                     && data.getReserve(AllomanticMetal.STEEL) > 0f) {
                                 data.addToSet(AllomanticMetal.STEEL);
+                                data.addToActive(AllomanticMetal.STEEL);
                             }
                         }
                     } else {
-                        // Regular metal: check reserve availability before adding
+                        // Regular metal: toggle set+active simultaneously
                         if (data.isMetalSet(metal)) {
-                            // Un-set and stop burning
+                            // Deselect: stop burning immediately
                             data.removeFromSet(metal);
                             data.removeFromActive(metal);
                         } else {
+                            // Select: start burning immediately if reserve available
                             if (data.getReserve(metal) > 0f) {
                                 data.addToSet(metal);
+                                data.addToActive(metal);
                             }
                         }
                     }
                     ModNetwork.sync(player, data);
                 }
 
-                // Toggle burning on/off (F key press).
-                // If any metals are currently active: turn all off.
-                // Otherwise: activate all set metals that have reserve remaining.
+                // Toggle Iron/Steel POWER (push/pull effect) on/off (F key press).
+                // Iron and Steel continue burning regardless; only their effect is suppressed.
+                // Has no effect if neither Iron nor Steel is actively burning.
                 case TOGGLE_BURN -> {
-                    if (!data.getActiveMetals().isEmpty()) {
-                        // Turn everything off
-                        data.clearActiveMetals();
-                    } else {
-                        // Activate every set metal that has reserve
-                        Set<AllomanticMetal> toActivate = EnumSet.noneOf(AllomanticMetal.class);
-                        for (AllomanticMetal metal : data.getSetMetals()) {
-                            if (data.getReserve(metal) > 0f) {
-                                toActivate.add(metal);
-                            }
-                        }
-                        if (!toActivate.isEmpty()) {
-                            data.setActiveMetals(toActivate);
-                        }
+                    boolean ironActive  = data.isMetalActive(AllomanticMetal.IRON);
+                    boolean steelActive = data.isMetalActive(AllomanticMetal.STEEL);
+                    if (ironActive || steelActive) {
+                        data.toggleIronSteelPower();
+                        ModNetwork.sync(player, data);
                     }
-                    ModNetwork.sync(player, data);
                 }
 
-                // Iron Pull via right-click (Iron is active, F on)
+                // Iron Pull via right-click (Iron is active AND power is enabled)
                 case REQUEST_PULL -> {
                     if (!data.isMetalActive(AllomanticMetal.IRON)) break;
+                    if (!data.isIronSteelPowerEnabled()) break;
                     if (data.getReserve(AllomanticMetal.IRON) <= 0f) break;
                     if (!(player.level() instanceof ServerLevel sl)) break;
 
@@ -150,9 +145,10 @@ public record ClientActionPacket(Action action, int metalOrdinal) implements Cus
                     if (target != null) IronSteelHandler.executePull(player, target);
                 }
 
-                // Steel Push via left-click (Steel is active, F on)
+                // Steel Push via left-click (Steel is active AND power is enabled)
                 case REQUEST_PUSH -> {
                     if (!data.isMetalActive(AllomanticMetal.STEEL)) break;
+                    if (!data.isIronSteelPowerEnabled()) break;
                     if (data.getReserve(AllomanticMetal.STEEL) <= 0f) break;
                     if (!(player.level() instanceof ServerLevel sl)) break;
 

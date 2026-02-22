@@ -248,26 +248,40 @@ public class RadialMenuRenderer {
     // ── Slot building ─────────────────────────────────────────────────────────
 
     /**
-     * Builds the ordered list of radial slots from the player's unlocked metals.
-     * Iron and Steel are collapsed into one "Iron/Steel" slot when either is unlocked.
+     * Builds the ordered list of radial slots from the player's <em>available</em> metals –
+     * only metals that are both unlocked and have reserve > 0 are shown. This represents
+     * metals currently "inside" the player from a recently consumed vial.
+     *
+     * <p>Iron and Steel are collapsed into one combined "Iron/Steel" slot when either
+     * has reserve available.</p>
      */
     private static List<RadialSlot> buildSlots(AllomanticData data) {
-        List<AllomanticMetal> unlocked = new ArrayList<>(data.getUnlockedMetals());
-        if (unlocked.isEmpty()) return List.of();
-        unlocked.sort(java.util.Comparator.comparingInt(AllomanticMetal::ordinal));
-
         List<RadialSlot> slots = new ArrayList<>();
         boolean ironSteelAdded = false;
 
-        for (AllomanticMetal metal : unlocked) {
+        for (AllomanticMetal metal : AllomanticMetal.values()) {
+            // Only show metals that are unlocked AND have reserve (i.e. "available")
+            if (!data.isUnlocked(metal)) continue;
+
             if (metal == AllomanticMetal.IRON || metal == AllomanticMetal.STEEL) {
                 if (!ironSteelAdded) {
-                    // Combined Iron/Steel slot
+                    // Combined Iron/Steel slot – only appears if at least one has reserve
                     float ironReserve  = data.getReserve(AllomanticMetal.IRON);
                     float steelReserve = data.getReserve(AllomanticMetal.STEEL);
                     float groupReserve = Math.max(ironReserve, steelReserve);
-                    boolean groupAvail = groupReserve > 0f
-                            && (data.isUnlocked(AllomanticMetal.IRON) || data.isUnlocked(AllomanticMetal.STEEL));
+
+                    boolean ironUnlocked  = data.isUnlocked(AllomanticMetal.IRON);
+                    boolean steelUnlocked = data.isUnlocked(AllomanticMetal.STEEL);
+
+                    // Only add this slot if the group has any reserve
+                    boolean groupHasReserve = (ironUnlocked && ironReserve > 0f)
+                            || (steelUnlocked && steelReserve > 0f);
+                    if (!groupHasReserve) {
+                        ironSteelAdded = true; // mark so we don't re-check STEEL
+                        continue;
+                    }
+
+                    boolean groupAvail = groupReserve > 0f;
                     boolean groupSet   = data.isMetalSet(AllomanticMetal.IRON)
                             || data.isMetalSet(AllomanticMetal.STEEL);
 
@@ -283,12 +297,15 @@ public class RadialMenuRenderer {
                                              IRON_STEEL_REPRESENTATIVE, groupAvail, groupSet));
                     ironSteelAdded = true;
                 }
-                // Skip STEEL separately since both are in one slot
+                // Skip STEEL separately – both are in one slot
             } else {
                 float reserve = data.getReserve(metal);
+                // Only show metals that currently have reserve
+                if (reserve <= 0f) continue;
+
                 int color     = 0xFF000000 | metal.getColour();
                 boolean isSet = data.isMetalSet(metal);
-                slots.add(new RadialSlot(metal.getDisplayName(), color, metal, reserve > 0f, isSet));
+                slots.add(new RadialSlot(metal.getDisplayName(), color, metal, true, isSet));
             }
         }
 

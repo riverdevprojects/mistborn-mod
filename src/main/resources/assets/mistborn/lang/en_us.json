@@ -10,9 +10,15 @@
   "item.mistborn.zinc_flake":   "Zinc Flake",
   "item.mistborn.brass_flake":  "Brass Flake",
 
+  "item.mistborn.vial":        "Allomantic Vial",
+  "item.mistborn.vial.filled": "Filled Allomantic Vial",
+
+  "block.mistborn.vial_filler":     "Vial Filler",
+  "container.mistborn.vial_filler": "Vial Filler",
+
   "key.categories.mistborn": "Mistborn",
   "key.mistborn.radial":     "Open Metal Radial Menu",
-  "key.mistborn.burn":       "Burn Selected Metal",
+  "key.mistborn.burn":       "Toggle Iron/Steel Power",
   "key.mistborn.push":       "Steel Push",
   "key.mistborn.pull":       "Iron Pull"
 }
