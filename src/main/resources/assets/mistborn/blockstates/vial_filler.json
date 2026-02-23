@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "mistborn:block/vial_filler"
+    }
+  }
+}

@@ -1,5 +1,8 @@
 package com.mistborn;
 
+import com.mistborn.block.ModBlocks;
+import com.mistborn.block.entity.ModBlockEntities;
+import com.mistborn.block.menu.ModMenuTypes;
 import com.mistborn.capability.ModAttachments;
 import com.mistborn.command.PowerCommand;
 import com.mistborn.config.MistbornConfig;
@@ -39,6 +42,10 @@ public class MistbornMod {
         // Register DeferredRegisters to the mod event bus
         ModItems.ITEMS.register(modEventBus);
         ModItems.CREATIVE_TABS.register(modEventBus);
+        ModBlocks.BLOCKS.register(modEventBus);
+        ModBlocks.BLOCK_ITEMS.register(modEventBus);
+        ModBlockEntities.BLOCK_ENTITY_TYPES.register(modEventBus);
+        ModMenuTypes.MENU_TYPES.register(modEventBus);
         ModAttachments.ATTACHMENT_TYPES.register(modEventBus);
 
         // Network payload registration

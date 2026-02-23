@@ -156,15 +156,20 @@ public class ClientEventHandler {
     }
 
     /**
-     * Handles the burn-toggle key (F).
-     * Fires {@link ClientActionPacket#toggleBurn()} on the <em>rising edge</em>
-     * (key just pressed), not on release.
+     * Handles the F key, which now specifically toggles the Iron/Steel push/pull
+     * <em>power</em> (effect) on or off. Iron and Steel continue burning regardless;
+     * only whether the effect fires changes.
+     *
+     * <p>The packet is only sent (and the server only processes it) when Iron or Steel
+     * is actively burning, so pressing F while those metals are not selected has no effect.</p>
+     *
+     * <p>Fires on the <em>rising edge</em> (key just pressed), not on release.</p>
      */
     private static void handleBurnKey(Minecraft mc) {
         boolean held = ModKeybinds.KEY_BURN.isDown();
 
         if (held && !wasBurnHeld) {
-            // Rising edge – send toggle
+            // Rising edge – send iron/steel power toggle
             PacketDistributor.sendToServer(ClientActionPacket.toggleBurn());
         }
 
@@ -172,11 +177,12 @@ public class ClientEventHandler {
     }
 
     /**
-     * Handles left-click (Push) and right-click (Pull) for the Iron/Steel group.
+     * Handles left-click (Steel Push) and right-click (Iron Pull) for the Iron/Steel group.
      *
-     * <p>Only active when {@link AllomanticMetal#IRON} is selected (representing the
-     * Iron/Steel group) and the F-toggle is on.  Uses a 2-tick rate-limit to avoid
-     * flooding the server, consistent with the old dedicated key approach.</p>
+     * <p>Only sends packets when Iron or Steel is actively burning <em>and</em> the
+     * Iron/Steel power flag is enabled (F toggle ON). When the power flag is OFF, clicks
+     * are suppressed so the player can interact normally (e.g. punch something) without
+     * being pulled/pushed. Uses a 2-tick rate-limit to avoid flooding the server.</p>
      */
     private static void handleMouseButtons(Minecraft mc) {
         if (mc.player == null) return;
@@ -188,7 +194,8 @@ public class ClientEventHandler {
         boolean ironSteelActive = data.isMetalActive(AllomanticMetal.IRON)
                 || data.isMetalActive(AllomanticMetal.STEEL);
 
-        if (!ironSteelActive) return;
+        // Power flag check: F toggles whether push/pull effect fires while still burning
+        if (!ironSteelActive || !data.isIronSteelPowerEnabled()) return;
 
         long    win       = mc.getWindow().getWindow();
         boolean leftHeld  = GLFW.glfwGetMouseButton(win, GLFW.GLFW_MOUSE_BUTTON_LEFT)  == GLFW.GLFW_PRESS;

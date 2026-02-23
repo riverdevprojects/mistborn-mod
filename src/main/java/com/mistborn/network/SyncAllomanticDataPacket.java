@@ -25,13 +25,15 @@ import static com.mistborn.MistbornMod.MODID;
  * <ul>
  *   <li>1 byte – setMetals bitmask (bit i = AllomanticMetal.values()[i] is set/queued)</li>
  *   <li>1 byte – activeMetals bitmask (bit i = metal is actively burning)</li>
+ *   <li>1 byte – ironSteelPowerEnabled (0 = false, 1 = true)</li>
  * </ul>
  */
 public record SyncAllomanticDataPacket(
         Set<AllomanticMetal> unlockedMetals,
         Map<AllomanticMetal, Float> reserves,
         Set<AllomanticMetal> setMetals,
-        Set<AllomanticMetal> activeMetals
+        Set<AllomanticMetal> activeMetals,
+        boolean ironSteelPowerEnabled
 ) implements CustomPacketPayload {
 
     public static final Type<SyncAllomanticDataPacket> TYPE =
@@ -70,6 +72,9 @@ public record SyncAllomanticDataPacket(
             if (pkt.activeMetals.contains(m)) activeMask |= (1 << m.ordinal());
         }
         buf.writeByte(activeMask);
+
+        // ironSteelPowerEnabled
+        buf.writeBoolean(pkt.ironSteelPowerEnabled);
     }
 
     private static SyncAllomanticDataPacket decode(FriendlyByteBuf buf) {
@@ -99,7 +104,10 @@ public record SyncAllomanticDataPacket(
             if ((activeMask & (1 << i)) != 0) activeMetals.add(vals[i]);
         }
 
-        return new SyncAllomanticDataPacket(unlocked, reserves, setMetals, activeMetals);
+        boolean ironSteelPowerEnabled = buf.readBoolean();
+
+        return new SyncAllomanticDataPacket(unlocked, reserves, setMetals, activeMetals,
+                ironSteelPowerEnabled);
     }
 
     // ── Handling (client side) ────────────────────────────────────────────────
@@ -129,6 +137,9 @@ public record SyncAllomanticDataPacket(
 
             data.getActiveMetals().clear();
             data.getActiveMetals().addAll(activeMetals);
+
+            // Sync iron/steel power flag
+            data.setIronSteelPowerEnabled(ironSteelPowerEnabled);
 
             data.clearDirty();
         });
@@ -163,6 +174,7 @@ public record SyncAllomanticDataPacket(
                 ? EnumSet.noneOf(AllomanticMetal.class)
                 : EnumSet.copyOf(data.getActiveMetals());
 
-        return new SyncAllomanticDataPacket(unlocked, reserves, setMetals, activeMetals);
+        return new SyncAllomanticDataPacket(unlocked, reserves, setMetals, activeMetals,
+                data.isIronSteelPowerEnabled());
     }
 }

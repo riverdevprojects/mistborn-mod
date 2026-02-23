@@ -19,11 +19,14 @@ import java.util.Set;
  *
  * <p>Two related but separate concepts:</p>
  * <ul>
- *   <li>{@code setMetals} – metals currently <em>set</em> (queued) via the radial wheel.
- *       A metal is "set" when the player selects it in the radial; selecting again un-sets it.
- *       Multiple metals can be set simultaneously.</li>
- *   <li>{@code activeMetals} – metals currently <em>burning</em> (F-toggle ON).
- *       Pressing F activates all set metals at once; pressing F again deactivates all.</li>
+ *   <li>{@code setMetals} – metals currently <em>selected and burning</em> via the radial wheel.
+ *       Selecting a metal in the radial immediately starts burning it.
+ *       Selecting it again (deselecting) stops burning. Multiple metals can be set simultaneously.</li>
+ *   <li>{@code activeMetals} – metals currently <em>actively burning</em>.
+ *       With the new system, activeMetals == setMetals (selecting = burning).</li>
+ *   <li>{@code ironSteelPowerEnabled} – whether Iron/Steel's push/pull <em>effect</em> is active.
+ *       Toggled by the F key while Iron or Steel is burning. The metals continue burning regardless;
+ *       only the push/pull effect is suppressed when this is false.</li>
  * </ul>
  */
 public class AllomanticData implements INBTSerializable<CompoundTag> {
@@ -35,16 +38,26 @@ public class AllomanticData implements INBTSerializable<CompoundTag> {
     private final Map<AllomanticMetal, Float> reserves = new EnumMap<>(AllomanticMetal.class);
 
     /**
-     * Metals currently "set" (queued) via the radial wheel.
+     * Metals currently selected via the radial wheel. Selecting a metal immediately
+     * starts burning it (adding to activeMetals too). Deselecting stops burning.
      * Multiple metals can be set simultaneously.
      */
     private final Set<AllomanticMetal> setMetals = EnumSet.noneOf(AllomanticMetal.class);
 
     /**
-     * Metals currently actively burning (F-toggle is ON for these metals).
-     * Always a subset of setMetals.
+     * Metals currently actively burning. With the new radial-select-to-burn system,
+     * this is always equal to setMetals (kept separate for backwards compatibility
+     * with the HUD renderer and power handlers).
      */
     private final Set<AllomanticMetal> activeMetals = EnumSet.noneOf(AllomanticMetal.class);
+
+    /**
+     * Whether Iron/Steel's push/pull <em>effect</em> is currently enabled.
+     * Toggled by the F key. When false, Iron and Steel continue burning but
+     * their push/pull effect is suppressed. Defaults to true.
+     * Serialized to NBT so it persists across sessions.
+     */
+    private boolean ironSteelPowerEnabled = true;
 
     /**
      * Transient cooldown (ticks) set when the player iron-pulls toward a HEAVY block.
@@ -149,6 +162,32 @@ public class AllomanticData implements INBTSerializable<CompoundTag> {
         activeMetals.clear();
         activeMetals.addAll(metals);
         dirty = true;
+    }
+
+    // ── Iron/Steel power toggle ───────────────────────────────────────────────
+
+    /**
+     * Returns true if the Iron/Steel push/pull <em>effect</em> is currently enabled.
+     * Even when false, Iron and Steel continue to burn and drain reserve.
+     */
+    public boolean isIronSteelPowerEnabled() {
+        return ironSteelPowerEnabled;
+    }
+
+    /**
+     * Toggle the Iron/Steel power flag. Called when the player presses F while
+     * Iron or Steel is actively burning.
+     */
+    public void toggleIronSteelPower() {
+        ironSteelPowerEnabled = !ironSteelPowerEnabled;
+        dirty = true;
+    }
+
+    public void setIronSteelPowerEnabled(boolean enabled) {
+        if (ironSteelPowerEnabled != enabled) {
+            ironSteelPowerEnabled = enabled;
+            dirty = true;
+        }
     }
 
     // ── Iron pull block cooldown ──────────────────────────────────────────────
@@ -289,6 +328,9 @@ public class AllomanticData implements INBTSerializable<CompoundTag> {
         }
         tag.put("activeMetals", activeList);
 
+        // Iron/Steel power toggle
+        tag.putBoolean("ironSteelPowerEnabled", ironSteelPowerEnabled);
+
         return tag;
     }
 
@@ -347,6 +389,10 @@ public class AllomanticData implements INBTSerializable<CompoundTag> {
                 activeMetals.addAll(setMetals);
             }
         }
+
+        // Iron/Steel power toggle (defaults true if absent)
+        ironSteelPowerEnabled = !tag.contains("ironSteelPowerEnabled", Tag.TAG_BYTE)
+                || tag.getBoolean("ironSteelPowerEnabled");
     }
 
     /**
@@ -365,6 +411,8 @@ public class AllomanticData implements INBTSerializable<CompoundTag> {
 
         activeMetals.clear();
         activeMetals.addAll(other.activeMetals);
+
+        ironSteelPowerEnabled = other.ironSteelPowerEnabled;
 
         // ironPullBlockCooldown is transient – not copied
         dirty = false;
