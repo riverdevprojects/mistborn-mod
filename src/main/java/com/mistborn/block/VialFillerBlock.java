@@ -10,6 +10,7 @@ import net.minecraft.world.MenuProvider;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
+import com.mojang.serialization.MapCodec;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BaseEntityBlock;
 import net.minecraft.world.level.block.RenderShape;
@@ -36,6 +37,13 @@ import org.jetbrains.annotations.Nullable;
  * metal contents stored as NBT.</p>
  */
 public class VialFillerBlock extends BaseEntityBlock {
+
+    public static final MapCodec<VialFillerBlock> CODEC = simpleCodec(VialFillerBlock::new);
+
+    @Override
+    protected MapCodec<? extends BaseEntityBlock> codec() {
+        return CODEC;
+    }
 
     public VialFillerBlock(Properties properties) {
         super(properties);
