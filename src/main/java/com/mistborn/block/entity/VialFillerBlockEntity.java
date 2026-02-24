@@ -16,6 +16,8 @@ import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ContainerData;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.neoforged.neoforge.registries.datamaps.builtin.FuelValues;
+import net.neoforged.neoforge.registries.datamaps.builtin.NeoForgeDataMaps;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import org.jetbrains.annotations.Nullable;
@@ -119,7 +121,8 @@ public class VialFillerBlockEntity extends BlockEntity implements WorldlyContain
 
         // Consume fuel when there's something to brew and fuel is needed
         if (fuelTime <= 0 && canBrew && !fuelStack.isEmpty()) {
-            int burnTime = level.fuelValues().burnDuration(fuelStack);
+            FuelValues fuelEntry = fuelStack.getItem().builtInRegistryHolder().getData(NeoForgeDataMaps.FURNACE_FUELS);
+            int burnTime = (fuelEntry != null) ? fuelEntry.burnTime() : 0;
             if (burnTime > 0) {
                 maxFuelTime = burnTime;
                 fuelTime    = burnTime;
@@ -194,7 +197,7 @@ public class VialFillerBlockEntity extends BlockEntity implements WorldlyContain
     public boolean canPlaceItemThroughFace(int slot, ItemStack stack, @Nullable net.minecraft.core.Direction dir) {
         return switch (slot) {
             case SLOT_VIAL       -> stack.getItem() instanceof VialItem;
-            case SLOT_FUEL       -> this.level != null && this.level.fuelValues().burnDuration(stack) > 0;
+            case SLOT_FUEL       -> stack.getItem().builtInRegistryHolder().getData(NeoForgeDataMaps.FURNACE_FUELS) != null;
             case SLOT_INGREDIENT -> stack.getItem() instanceof MetalFlakeItem;
             default -> false;
         };
