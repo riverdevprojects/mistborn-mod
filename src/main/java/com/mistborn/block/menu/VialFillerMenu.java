@@ -12,7 +12,7 @@ import net.minecraft.world.inventory.ContainerData;
 import net.minecraft.world.inventory.SimpleContainerData;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.Level;
+import net.neoforged.neoforge.registries.datamaps.builtin.NeoForgeDataMaps;
 
 /**
  * Server-side menu (container) for the Vial Filler block.
@@ -51,8 +51,6 @@ public class VialFillerMenu extends AbstractContainerMenu {
         checkContainerSize(container, VialFillerBlockEntity.NUM_SLOTS);
         checkContainerDataCount(data, 4);
 
-        final Level menuLevel = playerInv.player.level();
-
         // ── Block-entity slots ──────────────────────────────────────────────
 
         // Slot 0 – Vial
@@ -67,7 +65,7 @@ public class VialFillerMenu extends AbstractContainerMenu {
         addSlot(new Slot(container, VialFillerBlockEntity.SLOT_FUEL, FUEL_X, FUEL_Y) {
             @Override
             public boolean mayPlace(ItemStack stack) {
-                return menuLevel.fuelValues().burnDuration(stack) > 0;
+                return stack.getItem().builtInRegistryHolder().getData(NeoForgeDataMaps.FURNACE_FUELS) != null;
             }
         });
 
@@ -132,7 +130,7 @@ public class VialFillerMenu extends AbstractContainerMenu {
                 if (!moveItemStackTo(stack, VialFillerBlockEntity.SLOT_INGREDIENT, VialFillerBlockEntity.SLOT_INGREDIENT + 1, false)) {
                     return ItemStack.EMPTY;
                 }
-            } else if (player.level().fuelValues().burnDuration(stack) > 0) {
+            } else if (stack.getItem().builtInRegistryHolder().getData(NeoForgeDataMaps.FURNACE_FUELS) != null) {
                 if (!moveItemStackTo(stack, VialFillerBlockEntity.SLOT_FUEL, VialFillerBlockEntity.SLOT_FUEL + 1, false)) {
                     return ItemStack.EMPTY;
                 }
