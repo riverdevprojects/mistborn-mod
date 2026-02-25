@@ -74,6 +74,7 @@ public class MistbornMod {
         if (event.getLevel() instanceof ServerLevel sl) {
             PowerHandler.tickGlobalEffects(sl);
             PowerHandler.tickProjectiles(sl);
+            PowerHandler.tickGroundedIngots(sl);
         }
     }
 

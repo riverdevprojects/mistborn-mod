@@ -8,6 +8,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -138,6 +139,35 @@ public class PowerHandler {
         for (ItemEntity item : items) {
             processProjectile(level, item);
         }
+    }
+
+    /**
+     * Must be called each server level tick to maintain the grounded-ingot anchor state.
+     *
+     * <p>An iron ingot {@link ItemEntity} is marked as "grounded" (and thus treated as a
+     * {@link WeightClass#HEAVY} Steel-push anchor) whenever it is resting on solid ground.
+     * The flag is cleared as soon as the ingot leaves the ground (e.g. bounces, is kicked
+     * by an entity, or is picked up).</p>
+     *
+     * <p>This enables the steelpusher to throw an ingot downward and then push off it once
+     * it lands, or to use ingots on the ground as static anchor points.</p>
+     */
+    public static void tickGroundedIngots(ServerLevel level) {
+        level.getAllEntities().forEach(entity -> {
+            if (!(entity instanceof ItemEntity item)) return;
+            // Only iron ingots participate in the anchor system
+            if (!item.getItem().is(Items.IRON_INGOT)) return;
+
+            boolean onGround = item.onGround();
+            boolean wasGrounded = item.hasData(ModAttachments.GROUNDED_INGOT.get())
+                    && Boolean.TRUE.equals(item.getData(ModAttachments.GROUNDED_INGOT.get()));
+
+            if (onGround && !wasGrounded) {
+                item.setData(ModAttachments.GROUNDED_INGOT.get(), true);
+            } else if (!onGround && wasGrounded) {
+                item.setData(ModAttachments.GROUNDED_INGOT.get(), false);
+            }
+        });
     }
 
     private static void processProjectile(ServerLevel level, ItemEntity item) {

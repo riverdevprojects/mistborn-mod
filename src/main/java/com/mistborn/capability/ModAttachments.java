@@ -33,6 +33,20 @@ public class ModAttachments {
                     AttachmentType.builder(() -> false).build());
 
     /**
+     * Marks an iron-ingot {@link net.minecraft.world.entity.item.ItemEntity} as having
+     * landed on the ground and being available as a Steel-push anchor.
+     *
+     * <p>When true, the item is treated as {@link com.mistborn.power.WeightClass#HEAVY}
+     * by the Iron/Steel handler.  If the player pushes from too far to the side, the
+     * ingot slides along the ground instead of anchoring the player.</p>
+     *
+     * <p>Not persisted – clears on chunk reload, which is fine for a transient physics state.</p>
+     */
+    public static final Supplier<AttachmentType<Boolean>> GROUNDED_INGOT =
+            ATTACHMENT_TYPES.register("grounded_ingot", () ->
+                    AttachmentType.builder(() -> false).build());
+
+    /**
      * Stores the pending Brass-linger countdown for a mob (ticks until AI is restored).
      * 0 means no lingering effect.
      */

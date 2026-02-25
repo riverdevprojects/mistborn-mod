@@ -24,8 +24,8 @@ import org.lwjgl.glfw.GLFW;
  * <ul>
  *   <li><b>V (hold)</b> – Show radial wheel; <b>1-8</b> while held instantly select a slot
  *       and commit it immediately; releasing V commits the mouse-hovered slot.</li>
- *   <li><b>F (press)</b> – Toggle burning on/off for the currently selected metal.
- *       Switching metals via V while burning turns F off automatically (server-side).</li>
+ *   <li><b>G (press, default; remappable in Controls)</b> – Toggle the Iron/Steel
+ *       push/pull power on/off.  Iron and Steel continue burning regardless.</li>
  *   <li><b>Left-click</b> – Steel Push: only fires when the Iron/Steel group is selected
  *       and the F-toggle is active; otherwise normal Minecraft attack.</li>
  *   <li><b>Right-click</b> – Iron Pull: same guard; otherwise normal Minecraft use.</li>
@@ -156,12 +156,13 @@ public class ClientEventHandler {
     }
 
     /**
-     * Handles the F key, which now specifically toggles the Iron/Steel push/pull
-     * <em>power</em> (effect) on or off. Iron and Steel continue burning regardless;
-     * only whether the effect fires changes.
+     * Handles the iron-toggle key (default G, remappable in Controls → Mistborn),
+     * which toggles the Iron/Steel push/pull <em>power</em> (effect) on or off.
+     * Iron and Steel continue burning regardless; only whether the effect fires changes.
      *
      * <p>The packet is only sent (and the server only processes it) when Iron or Steel
-     * is actively burning, so pressing F while those metals are not selected has no effect.</p>
+     * is actively burning, so pressing the key while those metals are not selected has
+     * no effect.</p>
      *
      * <p>Fires on the <em>rising edge</em> (key just pressed), not on release.</p>
      */
