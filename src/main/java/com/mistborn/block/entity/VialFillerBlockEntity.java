@@ -16,7 +16,7 @@ import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ContainerData;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
-import net.neoforged.neoforge.registries.datamaps.builtin.FuelValues;
+import net.neoforged.neoforge.registries.datamaps.builtin.FurnaceFuel;
 import net.neoforged.neoforge.registries.datamaps.builtin.NeoForgeDataMaps;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
@@ -121,7 +121,7 @@ public class VialFillerBlockEntity extends BlockEntity implements WorldlyContain
 
         // Consume fuel when there's something to brew and fuel is needed
         if (fuelTime <= 0 && canBrew && !fuelStack.isEmpty()) {
-            FuelValues fuelEntry = fuelStack.getItem().builtInRegistryHolder().getData(NeoForgeDataMaps.FURNACE_FUELS);
+            FurnaceFuel fuelEntry = fuelStack.getItem().builtInRegistryHolder().getData(NeoForgeDataMaps.FURNACE_FUELS);
             int burnTime = (fuelEntry != null) ? fuelEntry.burnTime() : 0;
             if (burnTime > 0) {
                 maxFuelTime = burnTime;
