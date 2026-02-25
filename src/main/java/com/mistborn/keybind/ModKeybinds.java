@@ -14,8 +14,8 @@ import org.lwjgl.glfw.GLFW;
  *   <li><b>V (hold)</b> – Open the radial metal-selection wheel.
  *       While held, press 1-8 to immediately pick a slot, or move the mouse and
  *       release V to confirm the hovered segment.</li>
- *   <li><b>F</b> – Toggle burning of the currently selected metal on/off.
- *       Switching metals via V while burning automatically turns the toggle off.</li>
+ *   <li><b>G</b> – Toggle the Iron/Steel push/pull power on or off (default; remappable
+ *       in the Controls menu under the Mistborn category).</li>
  *   <li>Iron/Steel group: <b>Right-click</b> = Pull, <b>Left-click</b> = Push
  *       (only when F toggle is active).</li>
  * </ul>
@@ -35,14 +35,14 @@ public class ModKeybinds {
             CATEGORY);
 
     /**
-     * Toggle burning of the currently selected metal on/off.  Default: F
-     * Pressing while a metal is burning stops it; pressing while idle starts it.
-     * Switching metals via the radial wheel while burning also turns this off.
+     * Toggle the Iron/Steel push/pull power (effect) on or off.  Default: G
+     * Iron and Steel continue burning regardless; only whether the push/pull effect
+     * fires is toggled.  Fully remappable in the Controls menu under the Mistborn category.
      */
     public static final KeyMapping KEY_BURN = new KeyMapping(
             "key.mistborn.burn",
             InputConstants.Type.KEYSYM,
-            GLFW.GLFW_KEY_F,
+            GLFW.GLFW_KEY_G,
             CATEGORY);
 
     /**

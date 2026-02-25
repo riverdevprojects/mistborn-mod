@@ -40,6 +40,17 @@ public class MistbornConfig {
                     + " can trigger a Steeljump (default 45).")
             .defineInRange("steeljumpAngle", 45.0, 5.0, 90.0);
 
+    /**
+     * When pushing off a grounded iron ingot, the maximum angle in degrees from
+     * directly above the ingot within which it acts as an anchor (launches player).
+     * Beyond this angle the ingot slides along the ground instead.
+     */
+    public static final ModConfigSpec.DoubleValue INGOT_ANCHOR_ANGLE = BUILDER
+            .comment("Maximum angle in degrees from directly above a grounded iron ingot"
+                    + " at which it acts as a Steel-push anchor. Beyond this angle the"
+                    + " ingot slides instead of anchoring (default 45).")
+            .defineInRange("ingotAnchorAngle", 45.0, 5.0, 90.0);
+
     // ── Bronze ───────────────────────────────────────────────────────────────
 
     public static final ModConfigSpec.DoubleValue BRONZE_RANGE = BUILDER

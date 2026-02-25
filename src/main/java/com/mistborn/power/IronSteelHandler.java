@@ -152,7 +152,14 @@ public class IronSteelHandler {
         // Item entities
         for (ItemEntity item : level.getEntitiesOfClass(ItemEntity.class, searchBox, e -> true)) {
             if (isMetalItem(item.getItem())) {
-                sources.add(MetalSource.ofEntity(item, WeightClass.LIGHT));
+                // Grounded iron ingots are treated as HEAVY anchors rather than loose LIGHT items
+                WeightClass wc = WeightClass.LIGHT;
+                if (item.getItem().is(net.minecraft.world.item.Items.IRON_INGOT)
+                        && item.hasData(ModAttachments.GROUNDED_INGOT.get())
+                        && Boolean.TRUE.equals(item.getData(ModAttachments.GROUNDED_INGOT.get()))) {
+                    wc = WeightClass.HEAVY;
+                }
+                sources.add(MetalSource.ofEntity(item, wc));
             }
         }
 
@@ -295,28 +302,20 @@ public class IronSteelHandler {
                 applyVelocity(player, dir.scale(-1).scale(force * 0.5), true);
             }
             case HEAVY -> {
-                if (target.blockPos != null && isBelowPlayer(player, target.blockPos)) {
-                    // Steeljump – block is beneath the player, launch straight up
-                    double jumpForce = MistbornConfig.STEELJUMP_FORCE.get();
-                    Vec3   current   = player.getDeltaMovement();
-                    player.setDeltaMovement(current.x, jumpForce, current.z);
-                    player.resetFallDistance();
-                    // FIX: send the updated velocity to the client explicitly.
-                    // Without this packet the client never sees the changed Y velocity
-                    // so the player appears to stay on the ground despite the server-side
-                    // delta movement being set.
-                    player.hurtMarked = true;
-                    player.connection.send(
-                            new net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket(player));
+                // Grounded iron ingot – anchor or slide depending on push angle
+                if (target.entity instanceof ItemEntity ingot) {
+                    handleGroundedIngotPush(player, ingot, playerPos, dir, force);
+                } else if (target.blockPos != null && isBelowPlayer(player, target.blockPos)) {
+                    // Steeljump – block is beneath the player.
+                    // Direction is crosshair-based: launch in the opposite of where the player
+                    // is looking so they can steer the jump with their view angle.
+                    launchPlayerCrosshair(player);
                 } else {
                     // Block is beside or above the player.
                     //
-                    // FIX: Use the block's TOP FACE centre as the force origin instead of
-                    // the block's geometric centre.  When the player stands directly beside
-                    // a block on flat ground both Y coordinates are equal (block-top-Y ==
-                    // player-feet-Y) so the resulting push direction is perfectly horizontal
-                    // – matching Mistborn book physics.  For blocks at other heights the
-                    // direction interpolates naturally.
+                    // Use the block's TOP FACE centre as the force origin so that standing
+                    // directly beside a block on flat ground produces a perfectly horizontal
+                    // push, matching Mistborn book physics.
                     double blockTopY = target.blockPos != null
                             ? target.blockPos.getY() + 1.0
                             : target.position.y;
@@ -331,6 +330,81 @@ public class IronSteelHandler {
                 }
             }
         }
+    }
+
+    /**
+     * Handles a Steel Push against a grounded iron ingot (a HEAVY entity-based source).
+     *
+     * <p>If the player is within {@link MistbornConfig#INGOT_ANCHOR_ANGLE} degrees of
+     * directly above the ingot, the ingot is treated as a fixed anchor: the player is
+     * launched away using the crosshair direction (same as a steeljump).  The ingot
+     * remains stationary.</p>
+     *
+     * <p>If the player is too far to the side (angle exceeds the threshold), the ingot
+     * cannot brace against the ground and slides in the push direction.  The player
+     * receives no launch, leaving them without an anchor.</p>
+     */
+    private static void handleGroundedIngotPush(ServerPlayer player, ItemEntity ingot,
+                                                 Vec3 playerPos, Vec3 pushDir, double force) {
+        Vec3 ingotPos = ingot.position();
+        Vec3 playerToIngot = ingotPos.subtract(playerPos);
+        if (playerToIngot.length() < 0.001) return;
+
+        // Compute angle between straight-down from player and direction to ingot
+        Vec3 down = new Vec3(0, -1, 0);
+        double dot = down.dot(playerToIngot.normalize());
+        double angleDeg = Math.toDegrees(Math.acos(Math.max(-1, Math.min(1, dot))));
+
+        double anchorAngle = MistbornConfig.INGOT_ANCHOR_ANGLE.get();
+        if (angleDeg <= anchorAngle) {
+            // Player is close enough to directly above – ingot anchors, launch the player
+            launchPlayerCrosshair(player);
+        } else {
+            // Player is too far to the side – ingot slides along the ground
+            // Apply force horizontally in the push direction so the ingot scoots away
+            Vec3 slideDir = new Vec3(pushDir.x, 0, pushDir.z);
+            if (slideDir.length() > 0.001) {
+                applyVelocity(ingot, slideDir.normalize().scale(force), false);
+            }
+            // Clear grounded flag immediately: the ingot is no longer braced
+            ingot.setData(ModAttachments.GROUNDED_INGOT.get(), false);
+        }
+    }
+
+    /**
+     * Launches the player using their current look direction as the control vector.
+     *
+     * <p>The force is applied in the direction <em>opposite</em> to where the player is
+     * looking: looking straight down at a block below launches straight up; looking at
+     * 45° below-forward launches up-and-forward diagonally; looking mostly sideways
+     * produces a near-horizontal boost with a small upward component.</p>
+     *
+     * <p>A minimum upward component of zero is enforced – the player cannot be pushed
+     * downward through this path (e.g. if they accidentally look skyward while on top
+     * of a source the launch falls back to straight up).</p>
+     */
+    private static void launchPlayerCrosshair(ServerPlayer player) {
+        double jumpForce = MistbornConfig.STEELJUMP_FORCE.get();
+        Vec3 look = player.getLookAngle();
+
+        // Launch direction = opposite of where the crosshair is pointing
+        Vec3 launchDir = look.scale(-1);
+
+        // Prevent pushing the player into the ground: if the resulting Y component is
+        // negative (player was looking upward), fall back to straight up.
+        if (launchDir.y < 0) {
+            launchDir = new Vec3(0, 1, 0);
+        }
+
+        launchDir = launchDir.normalize();
+        player.setDeltaMovement(
+                launchDir.x * jumpForce,
+                launchDir.y * jumpForce,
+                launchDir.z * jumpForce);
+        player.resetFallDistance();
+        player.hurtMarked = true;
+        player.connection.send(
+                new net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket(player));
     }
 
     /**
